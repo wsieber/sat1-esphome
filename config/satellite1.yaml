@@ -115,7 +115,7 @@ external_components:
 
 logger:
   deassert_rts_dtr: true
-  hardware_uart: USB_SERIAL_JTAG
+  hardware_uart: UART0 #USB_SERIAL_JTAG
   level: debug
   logs:
     ltr_als_ps: WARN

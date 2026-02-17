@@ -1,5 +1,7 @@
 #include "tas2780.h"
 
+#include <algorithm>
+
 #include "esphome/core/defines.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -259,6 +261,17 @@ uint8_t get_channel_select_reg_val(ChannelSelect channel) {
   return TAS2780_TDM_CFG2_RX_SCFG__STEREO_DWN_MIX;
 }
 
+static inline uint32_t volts_to_lim_q18(float v_peak) {
+  if (!std::isfinite(v_peak) || v_peak < 0.0f) v_peak = 0.0f;
+  // Prevent overflow into nonsense if caller passes something huge
+  // (2^18 scaling; 0xFFFFFFFF corresponds to ~16383.999 V, unrealistic)
+  constexpr float kScale = static_cast<float>(1u << 18);
+  const double scaled = static_cast<double>(v_peak) * static_cast<double>(kScale);
+  const double rounded = std::round(scaled);
+  const double clamped = std::clamp(rounded, 0.0, static_cast<double>(0xFFFFFFFFu));
+  return static_cast<uint32_t>(clamped);
+}
+
 void TAS2780::setup() {
   this->init();
   // set to software shutdown
@@ -271,7 +284,7 @@ void TAS2780::init() {
   this->reg(TAS2780_PAGE_SELECT) = 0x00;
 
   // software reset
-  this->reg(0x01) = 0x01;
+  this->reg(TAS2780_SW_RESET) = 0x01;
 
   uint8_t chd1 = this->reg(0x05).get();
   uint8_t chd2 = this->reg(0x68).get();
@@ -294,7 +307,7 @@ void TAS2780::init() {
   this->reg(TAS2780_PAGE_SELECT) = 0x01;
   this->reg(TAS2780_LSR) = 0x00;     // LSR Mode
   this->reg(TAS2780_INIT_0) = 0xC8;  // SARBurstMask=0, CMP_HYST_LP=1
-  this->reg(TAS2780_INIT_1) = 0x00;  // Disable Comparator Hysterisis
+  this->reg(TAS2780_INIT_1) = 0x00;  // Disable Comparator Hysteresis
   this->reg(TAS2780_INIT_2) = 0x74;  // Noise minimized
 
   this->reg(TAS2780_PAGE_SELECT) = 0xFD;
@@ -302,15 +315,10 @@ void TAS2780::init() {
   this->reg(TAS2780_INIT_3) = 0x4a;  // Optimal Dmin
   this->reg(0x0D) = 0x00;            // Remove access Page 0xFD
 
-  this->reg(TAS2780_PAGE_SELECT) = 0x00;
-  // Power Mode 2 (no external VBAT)
-  // this->reg(TAS2780_CHNL_0) = 0xA8;
-  // this->reg(TAS2780_CHNL_0) = 0xA1;
-  this->set_power_mode_(this->power_mode_);
-
   // When Y bridge is used (eg. PWR_MODE1) PVDD UVLO threshold needs to be set 2.5 V above VBAT1S level.
   //  UVLO = 1.753V + val * 0.332V
   // this->reg(TAS2780_PVDD_UVLO) = 0x12; //PVDD UVLO set to 7.73V
+  this->reg(TAS2780_PAGE_SELECT) = 0x00;
   this->reg(TAS2780_PVDD_UVLO) = 0x03;  // PVDD UVLO set to 2.76V
 
   // Set interrupt masks
@@ -328,7 +336,7 @@ void TAS2780::init() {
   uint8_t reg_0x5c = this->reg(TAS2780_INT_CLK_CFG).get();
   this->reg(TAS2780_INT_CLK_CFG) = (reg_0x5c & ~0x03) | 0x00;
 
-  this->update_register();
+  this->update_settings();
 }
 
 void TAS2780::activate(uint8_t power_mode) {
@@ -357,23 +365,6 @@ void TAS2780::reset() {
   this->activate(this->power_mode_);
 }
 
-void TAS2780::set_power_mode_(const uint8_t power_mode) {
-  // PWR_MODE0: PVDD is the only supply used to deliver output power. VBAT external
-  // PWR_MODE1: VBAT1S is used to deliver output power based on level and headroom configured.
-  //            When audio signal crosses a programmed threshold Class-D output is switched over PVDD
-  // PWR_MODE2: PVDD is the only supply. VBAT1S is delivered by an internal LDO and used to supply at
-  //            signals close to idle channel levels. When audio signal levels crosses -100dBFS (default),
-  //            Class-D output switches to PVDD.
-  // PWR_MODE3: The device can be forced to work out of a low power rail mode of operation.
-
-  assert(power_mode < 4);
-  uint8_t chnl_0 = this->reg(TAS2780_CHNL_0).get();
-  this->reg(TAS2780_CHNL_0) =
-      (chnl_0 & ~TAS2780_CHNL_0_CDS_MODE_MASK) | (POWER_MODES[power_mode][0] << TAS2780_CHNL_0_CDS_MODE_SHIFT);
-  uint8_t dc_blk0 = this->reg(TAS2780_DC_BLK0).get();
-  this->reg(TAS2780_DC_BLK0) = (dc_blk0 & ~(1 << TAS2780_DC_BLK0_VBAT1S_MODE_SHIFT)) |
-                               (POWER_MODES[power_mode][1] << TAS2780_DC_BLK0_VBAT1S_MODE_SHIFT);
-}
 
 void TAS2780::log_error_states() {
   const uint8_t latched_its = this->reg(TAS2780_INT_LTCH0).get();
@@ -495,40 +486,280 @@ bool TAS2780::write_mute_() {
   return true;
 }
 
+void TAS2780::update_dvc_volume_range_(float dvc_max_db){
+  ESP_LOGD(TAG, "Update max volume range to %4.2f", dvc_max_db);
+  this->min_attenuation_db_ = -1 * dvc_max_db;
+}
+
+static inline float clamp01(float x) { return clamp<float>(x, 0.0f, 1.0f); }
+static inline float loudness_curve(float x, float gamma) {
+  x = clamp01(x);
+  gamma = std::max(0.1f, gamma);
+  return std::pow(x, gamma);
+}
+
 bool TAS2780::write_volume_() {
   /*
   V_{AMP} = INPUT + A_{DVC} + A_{AMP}
 
-  V_{AMP} is the amplifier output voltage in dBV ()
+  V_{AMP} is the amplifier output voltage in dBV
   INPUT: digital input amplitude as a number of dB with respect to 0 dBFS
   A_{DVC}: is the digital volume control setting as a number of dB (default 0 dB)
   A_{AMP}: the amplifier output level setting as a number of dBV
 
   DVC_LVL[7:0] :            0dB to -100dB [0x00, 0xC8] c8 = 200
-  AMP_LEVEL[4:0] : @48ksps 11dBV - 21dBV  [0x00, 0x14]
   */
-  float range_len = this->vol_range_max_ - this->vol_range_min_;
-  float volume = this->volume_ * range_len + this->vol_range_min_;
-  float attenuation = (1. - volume) * 100.f;
-  ESP_LOGD(TAG, "Setting attenuation to: %4.2f", attenuation);
-  uint8_t dvc = clamp<uint8_t>(attenuation, 0, 0xC8);
-  this->reg(TAS2780_DVC) = dvc;
+  
+  const float u = clamp01(this->volume_);
+  float span = this->vol_range_max_ - this->vol_range_min_;
+  if (span < 0.0f) span = 0.0f;
+  float x = this->vol_range_min_ + u * span;
+  x = clamp01(x);
+  
+  constexpr float kGamma = 2.0f; 
+  const float y = loudness_curve(x, kGamma);
+  const float attn_min_db = clamp<float>(this->min_attenuation_db_, 0.0f, 100.0f); // loudest allowed
+  const float attn_max_db = 60.0f;                                                // quietest
 
+  const float attn_db = attn_max_db - y * (attn_max_db - attn_min_db);
+  const uint8_t dvc = clamp<uint8_t>(
+  static_cast<uint8_t>(std::lround(attn_db * 2.0f)), 0, 0xC8);
+  
+   ESP_LOGD(TAG,
+        "Vol u=%0.3f range=[%0.3f..%0.3f] x=%0.3f gamma=%0.2f y=%0.3f attn=%5.2fdB DVC=0x%02X",
+           u, this->vol_range_min_, this->vol_range_max_, x, kGamma, y, attn_db, dvc);
+
+  this->reg(TAS2780_DVC) = dvc;
   return true;
 }
 
-void TAS2780::update_register() {
-  // AMP_LEVEL
-  uint8_t reg_val = this->reg(TAS2780_CHNL_0).get();
-  reg_val &= ~TAS2780_CHNL_0_AMP_LEVEL_MASK;
-  reg_val |= this->amp_level_ << TAS2780_CHNL_0_AMP_LEVEL_SHIFT;
-  this->reg(TAS2780_CHNL_0) = reg_val;
-  ESP_LOGD(TAG, "Update amp to level idx: %d", this->amp_level_);
+
+void TAS2780::update_settings(){
+  this->set_and_write_power_mode_();
+  
+  const float v_cap_dbV = this->calc_vcap_dBV_();
+  ESP_LOGD(TAG, "New upper limit: %2.4f", v_cap_dbV );
+  
+  // amp level
+  const float aamp_dBV = this->calc_and_write_amp_level_(v_cap_dbV);
+  
+  // limiter
+  this->set_and_write_limiter_(v_cap_dbV);
+  
+  //dvc max
+  const float dvc_max_db = std::min(0.f, v_cap_dbV - aamp_dBV);
+  this->update_dvc_volume_range_(dvc_max_db);
 
   // CHANNEL_SELECT
   this->reg(TAS2780_TDM_CFG2) = (get_channel_select_reg_val(this->selected_channel_) | TAS2780_TDM_CFG2_RX_WLEN__32BIT |
                                  TAS2780_TDM_CFG2_RX_SLEN__32BIT);
 }
+
+
+
+float TAS2780::calc_vcap_dBV_() const {
+  const float Rl   = static_cast<float>(static_cast<uint8_t>(this->speaker_impedance_));
+  const float Pspk = static_cast<float>(this->speaker_power_);
+  
+  // ---- Speaker limit (watts -> Vrms -> dBV)
+  const float Vspk_rms = std::sqrt(std::max(0.0f, Pspk * Rl));
+  const float vmax_spk_dBV = 20.0f * std::log10(std::max(1e-6f, Vspk_rms));
+  ESP_LOGD(TAG, "New speaker (%4.2fOhm, %4.2fW) limit: %4.2f", Rl, Pspk, vmax_spk_dBV);
+
+  const float Vs   = static_cast<float>(static_cast<uint8_t>(this->supply_voltage_));
+  const float Imax = std::max(0.0f, this->supply_max_current_);
+  constexpr float kEta = 0.85f;
+  
+  const float Pin_max = Vs * Imax;
+  const float Pout_I  = Pin_max * kEta;
+  const float VlimI_rms = std::sqrt(std::max(0.0f, Pout_I * Rl));
+  const float VlimI_dBV = 20.0f * std::log10(std::max(1e-6f, VlimI_rms));
+  ESP_LOGD(TAG, "Supply (%4.2fV, %4.2fI) limit: %4.2fdBV %4.2fVrms", Vs, Imax, VlimI_dBV, VlimI_rms);
+
+  // ---- Supply voltage / clipping limit (datasheet Eq(2))
+  // TAS2780 datasheet provides typical RFET values; RP is board-specific.
+  constexpr float kRp = 0.20f; // ohms, conservative default
+ 
+  const float Rfet = (this->power_mode_ == 0) ? 0.50f : 0.25f;
+  const float Rtot = Rl + kRp + Rfet;
+
+  const float Vpk_max   = Vs * (Rl / std::max(1e-6f, Rtot)); // peak
+  const float VlimV_rms = Vpk_max / std::sqrt(2.0f);         // sine RMS
+  const float VlimV_dBV = 20.0f * std::log10(std::max(1e-6f, VlimV_rms));
+  
+  ESP_LOGD(TAG, "clipping limit: (%4.2fVpk) limit: %4.2fdBV", Vpk_max, VlimV_dBV);
+  const float vmax_supply_dBV = std::min(VlimI_dBV, VlimV_dBV);
+  
+  // ---- Final cap
+  constexpr float kAmpMax_dBV = 21.0f;
+  constexpr float kHeadroom_dB = 1.0f;
+  const float v_cap_db = std::min({vmax_spk_dBV, vmax_supply_dBV, kAmpMax_dBV}) - kHeadroom_dB;
+  
+  return v_cap_db;
+}
+
+
+
+
+float TAS2780::calc_and_write_amp_level_(float v_cap_dBV){
+  constexpr float kAmpMin_dBV = 11.0f;
+  constexpr float kAmpMax_dBV = 21.0f;
+  constexpr float kStep_dB = 0.5f;
+  
+  float aamp_dbV = std::clamp(v_cap_dBV, kAmpMin_dBV, kAmpMax_dBV);
+  // Quantize to AMP_LVL steps (0.5 dB)
+  const float steps_f = std::round((aamp_dbV - kAmpMin_dBV) / kStep_dB);
+  
+  const int code = static_cast<int>(std::clamp(
+      steps_f, 0.0f, (kAmpMax_dBV - kAmpMin_dBV) / kStep_dB));
+  
+  // Write code to register
+  uint8_t reg_val = this->reg(TAS2780_CHNL_0).get();
+  reg_val &= ~TAS2780_CHNL_0_AMP_LEVEL_MASK;
+  reg_val |= code << TAS2780_CHNL_0_AMP_LEVEL_SHIFT;
+  this->reg(TAS2780_CHNL_0) = reg_val;
+  ESP_LOGD(TAG, "Setting AMP_LEVEL to %4.2f dBV", steps_f * kStep_dB + kAmpMin_dBV);  
+  return steps_f * kStep_dB + kAmpMin_dBV;
+}
+
+void TAS2780::set_and_write_limiter_(float v_cap_dbV){
+  const float Vrms = std::pow(10.0f, v_cap_dbV / 20.0f);
+  const float vpk_max = Vrms * std::sqrt(2.0f);
+  
+  if (this->power_mode_ == 0){
+    this->set_limiter_mode0_fixed_(vpk_max);
+  } else if (this->power_mode_ == 2) {
+    const float pvdd_nom = static_cast<float>(static_cast<uint8_t>(this->supply_voltage_));
+    const float headroom_v = 1.0f;
+    const float vpk_inf = std::min(pvdd_nom, vpk_max + headroom_v);
+    this->set_limiter_mode2_tracking_(vpk_max, -1, vpk_inf);
+  }
+}
+
+
+
+void TAS2780::set_and_write_power_mode_() {
+  // PWR_MODE0: PVDD is the only supply used to deliver output power. VBAT external
+  // PWR_MODE1: VBAT1S is used to deliver output power based on level and headroom configured.
+  //            When audio signal crosses a programmed threshold Class-D output is switched over PVDD
+  // PWR_MODE2: PVDD is the only supply. VBAT1S is delivered by an internal LDO and used to supply at
+  //            signals close to idle channel levels. When audio signal levels crosses -100dBFS (default),
+  //            Class-D output switches to PVDD.
+  // PWR_MODE3: The device can be forced to work out of a low power rail mode of operation.
+  
+  const uint8_t Vs = static_cast<uint8_t>(this->supply_voltage_);
+  if (Vs >= 9 ){
+    this->power_mode_ = 2;
+  } else {
+    this->power_mode_ = 0;
+  }
+  
+  const uint8_t power_mode = this->power_mode_;
+  assert(power_mode < 4);
+  uint8_t chnl_0 = this->reg(TAS2780_CHNL_0).get();
+  this->reg(TAS2780_CHNL_0) =
+      (chnl_0 & ~TAS2780_CHNL_0_CDS_MODE_MASK) | (POWER_MODES[power_mode][0] << TAS2780_CHNL_0_CDS_MODE_SHIFT);
+  uint8_t dc_blk0 = this->reg(TAS2780_DC_BLK0).get();
+  this->reg(TAS2780_DC_BLK0) = (dc_blk0 & ~(1 << TAS2780_DC_BLK0_VBAT1S_MODE_SHIFT)) |
+                               (POWER_MODES[power_mode][1] << TAS2780_DC_BLK0_VBAT1S_MODE_SHIFT);
+}
+
+
+  void TAS2780::configure_STL_(
+      float th_max_vpk,
+      bool enable,
+      uint8_t max_attn_db,
+      uint8_t attack_code,
+      uint8_t hold_code,
+      uint8_t release_code,
+      bool pause_during_bop,
+      bool headroom_enable,
+      float th_min_vpk,
+      float inf_pt_vpk
+  ) {
+    // --- 1) Thresholds live on PAGE 0x04
+    this->reg(TAS2780_PAGE_SELECT) = 0x04;
+
+    // LIM_TH_MAX[31:0] = round(V * 2^18), big-endian across *_1..*_4
+    this->write_u32_be_(TAS2780_LIM_TH_MAX1, volts_to_lim_q18(th_max_vpk));
+
+    if (th_min_vpk >= 0.0f) {
+      this->write_u32_be_(TAS2780_LIM_TH_MIN1, volts_to_lim_q18(th_min_vpk));
+    }
+    if (inf_pt_vpk >= 0.0f) {
+      this->write_u32_be_(TAS2780_LIM_INF_PT1, volts_to_lim_q18(inf_pt_vpk));
+    }
+
+    // Back to PAGE 0
+    this->reg(TAS2780_PAGE_SELECT) = 0x00;
+
+    // --- 2) Limiter dynamics/config live on PAGE 0x00
+
+    // LIM_MAX_ATTN upper nibble encodes 1..15 dB as 0..0xE (0=1dB ... 0xE=15dB)
+    max_attn_db = std::clamp<uint8_t>(max_attn_db, 1, 15);
+    const uint8_t lim_max_attn_nib = static_cast<uint8_t>(max_attn_db - 1);
+    this->reg(TAS2780_LIM_MAX_ATTN) = static_cast<uint8_t>(lim_max_attn_nib << 4);
+
+    // LIM_CFG0: [5]=LIM_HR_EN, [4:1]=LIM_ATK_RT, [0]=LIM_EN
+    attack_code &= 0x0F;
+    uint8_t lim_cfg0 = 0;
+    if (headroom_enable) lim_cfg0 |= (1u << 5);
+    lim_cfg0 |= static_cast<uint8_t>(attack_code << 1);
+    if (enable) lim_cfg0 |= 1u;
+    this->reg(TAS2780_LIM_CFG0) = lim_cfg0;
+
+    // LIM_CFG1: [7]=LIM_PDB, [6:3]=LIM_RLS_RT, [2:0]=LIM_HLD_TM
+    release_code &= 0x0F;
+    hold_code &= 0x07;
+    uint8_t lim_cfg1 = 0;
+    if (pause_during_bop) lim_cfg1 |= (1u << 7);
+    lim_cfg1 |= static_cast<uint8_t>(release_code << 3);
+    lim_cfg1 |= hold_code;
+    this->reg(TAS2780_LIM_CFG1) = lim_cfg1;
+  }
+
+  
+  void TAS2780::set_limiter_mode0_fixed_(float vpk_cap) {
+    // Fast-ish attack, modest hold, medium release, plenty of attenuation room.
+    this->configure_STL_(
+      vpk_cap,
+      /*enable=*/true,
+      /*max_attn_db=*/12,
+      /*attack_code=*/0x03,   // example: 160 us/dB (see datasheet table)
+      /*hold_code=*/0x02,     // example: 25 ms
+      /*release_code=*/0x06,  // example: 128 ms/dB
+      /*pause_during_bop=*/true,
+      /*headroom_enable=*/true,
+      /*th_min_vpk=*/-1.0f,
+      /*inf_pt_vpk=*/-1.0f
+    );
+  }
+
+  void TAS2780::set_limiter_mode2_tracking_(float vpk_max, float vpk_min, float vpk_inflect) {
+    // Similar attack, longer release to avoid audible “gain riding”.
+    this->configure_STL_(
+      vpk_max,
+      /*enable=*/true,
+      /*max_attn_db=*/12,
+      /*attack_code=*/0x03,
+      /*hold_code=*/0x03,     // example: 50 ms
+      /*release_code=*/0x08,  // example: 512 ms/dB
+      /*pause_during_bop=*/true,
+      /*headroom_enable=*/true,
+      /*th_min_vpk=*/vpk_min,
+      /*inf_pt_vpk=*/vpk_inflect
+    );
+  }
+
+  void TAS2780::write_u32_be_(uint8_t reg_msb, uint32_t v) {
+    this->reg(reg_msb + 0) = static_cast<uint8_t>((v >> 24) & 0xFF);
+    this->reg(reg_msb + 1) = static_cast<uint8_t>((v >> 16) & 0xFF);
+    this->reg(reg_msb + 2) = static_cast<uint8_t>((v >>  8) & 0xFF);
+    this->reg(reg_msb + 3) = static_cast<uint8_t>((v >>  0) & 0xFF);
+  }
+
+
+
 
 }  // namespace tas2780
 }  // namespace esphome
