@@ -28,7 +28,7 @@ class TAS2780 : public audio_dac::AudioDac, public Component, public i2c::I2CDev
   void deactivate();
   void update_settings();
   void log_error_states();
-  
+
   bool set_mute_off() override;
   bool set_mute_on() override;
   bool set_volume(float volume) override;
@@ -50,7 +50,7 @@ class TAS2780 : public audio_dac::AudioDac, public Component, public i2c::I2CDev
 
  protected:
   float calc_vcap_dBV_() const;
-  
+
   float calc_and_write_amp_level_(float v_cap_dBV);
   void set_and_write_power_mode_();
   void set_and_write_limiter_(float v_cap_dBV);
@@ -72,39 +72,29 @@ class TAS2780 : public audio_dac::AudioDac, public Component, public i2c::I2CDev
    * @param th_min_vpk  If >=0, programs LIM_TH_MIN (VOLTS PEAK).
    * @param inf_pt_vpk  If >=0, programs LIM_INF_PT (VOLTS PEAK).
    */
-  void configure_STL_(
-      float th_max_vpk,
-      bool enable,
-      uint8_t max_attn_db,
-      uint8_t attack_code,
-      uint8_t hold_code,
-      uint8_t release_code,
-      bool pause_during_bop = true,
-      bool headroom_enable = true,
-      float th_min_vpk = -1.0f,
-      float inf_pt_vpk = -1.0f
-  );
-  
+  void configure_STL_(float th_max_vpk, bool enable, uint8_t max_attn_db, uint8_t attack_code, uint8_t hold_code,
+                      uint8_t release_code, bool pause_during_bop = true, bool headroom_enable = true,
+                      float th_min_vpk = -1.0f, float inf_pt_vpk = -1.0f);
+
   void set_limiter_mode0_fixed_(float vpk_cap);
   void set_limiter_mode2_tracking_(float vpk_max, float vpk_min, float vpk_inflect);
-  
+
   bool write_mute_();
   bool write_volume_();
   void write_u32_be_(uint8_t reg_msb, uint32_t v);
 
-  
   float vol_range_max_{1.};
-  float vol_range_min_{.3};  
+  float vol_range_min_{.3};
   float volume_{0};
   float min_attenuation_db_{0};
-  
+
   uint8_t power_mode_{2};
   SupplyVoltage supply_voltage_{SupplyVoltage::V5};
   float supply_max_current_{0.5f};
-  
+
   uint8_t speaker_power_{15};
   SpeakerImpedance speaker_impedance_{SpeakerImpedance::Ohm4};
-  
+
   ChannelSelect selected_channel_{MONO_DWN_MIX};
 };
 

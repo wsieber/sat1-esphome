@@ -2,8 +2,6 @@ globals:
   - id: tas2780_enabled
     type: bool
     initial_value: 'true'
-
-
 audio_dac:
   - platform: pcm5122
     id: line_out_dac
@@ -15,22 +13,18 @@ audio_dac:
     id: dac_proxy
     speaker_dac: speaker_dac
     line_out_dac: line_out_dac
-
     on_state_change:
       - media_player.speaker.restore_volume:
           volume: !lambda return id(dac_proxy).volume();
           mute: !lambda return id(dac_proxy).is_muted();
-
 api:
   actions:
     - action: activate_speaker_dac
       then:
         - dac_proxy.activate_speaker:
-
     - action: activate_lineout_dac
       then:
         - dac_proxy.activate_line_out:
-
 select:
   - platform: template
     name: Speaker channel output
@@ -53,7 +47,6 @@ select:
             }
             ESP_LOGI("main", "No channel selected");
             return 0;
-  
   - platform: template
     name: Speaker Specs
     id: tas_speaker_spec_select
@@ -67,24 +60,23 @@ select:
       - "10W - 8Ω"
       - "15W - 8Ω"
       - "20W - 8Ω"
-    initial_option: "5W - 8Ω"      
+    initial_option: "5W - 8Ω"
     entity_category: config
     optimistic: true
     restore_value: true
     on_value:
       - if:
           condition:
-             - lambda: 'return id(tas_speaker_spec_select).current_option() == "No Speaker";'
+            - lambda: 'return id(tas_speaker_spec_select).current_option() == "No Speaker";'
           then:
-             - tas2780.deactivate:
-             - globals.set:
+            - tas2780.deactivate:
+            - globals.set:
                 id: tas2780_enabled
                 value: 'false'
           else:
             - globals.set:
                 id: tas2780_enabled
                 value: 'true'
-            
             - lambda: |-
                 using Impedance = esphome::tas2780::SpeakerImpedance;
                 const int options[8][2] = {
@@ -98,9 +90,6 @@ select:
                   id(speaker_dac).update_settings();
                   id(speaker_dac).activate();
                 }
-                
-            
-
 binary_sensor:
   - platform: gpio
     id: line_out_sensor
@@ -113,7 +102,6 @@ binary_sensor:
     filters:
       - delayed_on: 200ms
       - delayed_off: 200ms
-
     on_press:
       - dac_proxy.activate_line_out:
       - lambda: id(jack_plugged_recently) = true;
@@ -126,7 +114,6 @@ binary_sensor:
       - delay: 800ms
       - lambda: id(jack_plugged_recently) = false;
       - script.execute: control_leds
-
     on_release:
       - dac_proxy.activate_speaker:
       - lambda: id(jack_unplugged_recently) = true;
@@ -139,7 +126,6 @@ binary_sensor:
       - delay: 800ms
       - lambda: id(jack_unplugged_recently) = false;
       - script.execute: control_leds
-
 switch:
   # Wake Word Sound Switch.
   - platform: template
@@ -155,7 +141,6 @@ switch:
     on_turn_off:
       then:
         - snapcast.disable:
-
 fusb302b:
   id: pd_fusb302b
   irq_pin: GPIO1
@@ -165,22 +150,17 @@ fusb302b:
       - logger.log:
           format: "PD contract got accepted: %s"
           args: ['id(pd_fusb302b).contract.c_str()']
-
       - text_sensor.template.publish:
           id: pd_state_text
           state: !lambda 'return id(pd_fusb302b).contract;'
-
       - tas2780.update_power_supply:
-         voltage: !lambda 'return id(pd_fusb302b).contract_voltage;' 
-         max_current: !lambda 'return id(pd_fusb302b).contract_max_current;'
-      
+          voltage: !lambda 'return id(pd_fusb302b).contract_voltage;'
+          max_current: !lambda 'return id(pd_fusb302b).contract_max_current;'
       - if:
           condition:
             - lambda: 'return id(tas2780_enabled);'
           then:
-            - tas2780.activate: 
-          
-
+            - tas2780.activate:
 speaker:
   - platform: i2s_audio
     id: i2s_audio_speaker
@@ -193,7 +173,6 @@ speaker:
     timeout: never
     audio_dac: dac_proxy
     # buffer_duration: 100ms
-
   # Virtual speakers to combine the announcement and media streams together into one output
   - platform: mixer
     id: mixing_speaker
@@ -205,7 +184,6 @@ speaker:
       - id: media_mixing_input
         timeout: never
         buffer_duration: 100ms
-
   # Vritual speakers to resample each pipelines' audio, if necessary, as the mixer speaker requires the same sample rate
   - platform: resampler
     id: announcement_resampling_speaker
@@ -217,10 +195,8 @@ speaker:
     output_speaker: media_mixing_input
     sample_rate: 48000
     bits_per_sample: 16
-
 snapcast:
   id: snapcast_client
-
 media_player:
   - platform: speaker
     id: external_media_player
@@ -232,28 +208,25 @@ media_player:
     snapcast: snapcast_client
     announcement_pipeline:
       speaker: announcement_resampling_speaker
-      format: FLAC     # FLAC is the least processor intensive codec
-      num_channels: 1  # Stereo audio is unnecessary for announcements
+      format: FLAC # FLAC is the least processor intensive codec
+      num_channels: 1 # Stereo audio is unnecessary for announcements
       sample_rate: 48000
     media_pipeline:
       speaker: media_resampling_speaker
-      format: FLAC     # FLAC is the least processor intensive codec
+      format: FLAC # FLAC is the least processor intensive codec
       num_channels: 2
       sample_rate: 48000
-
     on_mute:
       - script.execute: control_leds
     on_unmute:
       - script.execute: control_leds
     on_volume:
       - script.execute: control_leds
-
     on_announcement:
       - mixer_speaker.apply_ducking:
           id: media_mixing_input
           decibel_reduction: 20
           duration: 0.0s
-
     on_state:
       if:
         condition:
@@ -268,7 +241,6 @@ media_player:
               id: media_mixing_input
               decibel_reduction: 0
               duration: 1.0s
-
     files:
       - id: center_button_press_sound
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/center_button_press.flac
@@ -294,7 +266,6 @@ media_player:
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/jack_connected.flac
       - id: jack_disconnected_sound
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/jack_disconnected.flac
-
 script:
   # Script executed when we want to play sounds on the device.
   - id: play_sound
@@ -314,12 +285,11 @@ script:
             id(external_media_player)
               ->play_file(sound_file, true, false);
           }
-
   # Script to increased/decreased volume
   - id: control_volume
     mode: restart
     parameters:
-      increase_volume: bool  # True: Increase volume / False: Decrease volume.
+      increase_volume: bool # True: Increase volume / False: Decrease volume.
     then:
       - delay: 16ms
       - if:
