@@ -24,7 +24,6 @@
 #include "esp_transport.h"
 #include "esp_transport_tcp.h"
 
-
 #include "esp_mac.h"
 #include "mdns.h"
 #include <cstring>
