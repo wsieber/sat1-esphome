@@ -194,15 +194,7 @@ void SnapcastControlSession::notification_loop() {
                 std::string method = root["method"].as<std::string>();
                 if (method == "Server.OnUpdate") {
                   this->update_from_server_obj_(root["params"]["server"].as<JsonObject>());
-                } else if (method == "Stream.OnUpdate") {
-                  JsonObject params = root["params"];
-                  if (params["id"].as<std::string>() == this->client_state_.stream_id) {
-                    StreamInfo sInfo;
-                    sInfo.from_json(params["stream"]);
-                    if (this->on_stream_update_) {
-                      this->on_stream_update_(sInfo);
-                    }
-                  }
+
                 } else if (method == "Stream.OnProperties") {
                   JsonObject params = root["params"];
                   if (params["id"].as<std::string>() == this->client_state_.stream_id) {
@@ -233,10 +225,12 @@ void SnapcastControlSession::notification_loop() {
                   }
                 } else if (method == "Stream.OnUpdate") {
                   JsonObject params = root["params"];
-                  StreamInfo &sInfo = this->known_streams_[params["id"].as<std::string>()];
-                  sInfo.from_json(params["stream"]);
-                  if (sInfo.id == this->client_state_.stream_id && this->on_stream_update_) {
-                    this->on_stream_update_(sInfo);
+                  if (params["id"].as<std::string>() == this->client_state_.stream_id) {
+                    StreamInfo &sInfo = this->known_streams_[params["id"].as<std::string>()];
+                    sInfo.from_json(params["stream"]);
+                    if (this->on_stream_update_) {
+                      this->on_stream_update_(sInfo);
+                    }
                   }
                 } else if (method == "Client.OnConnect") {
                   JsonObject params = root["params"];

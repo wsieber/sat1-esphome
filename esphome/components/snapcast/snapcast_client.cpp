@@ -101,8 +101,18 @@ void SnapcastClient::report_volume(float volume, bool muted) {
 }
 
 void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t volume, bool muted) {
-  ESP_LOGD(TAG, "Stream component changed to state %d.", stream_state);
+  ESP_LOGD(TAG, "Stream component called: %d volume: %d muted: %d.", stream_state, volume, muted);
+  if ((stream_state == StreamState::STREAMING || stream_state == StreamState::CONNECTED_IDLE) &&
+      this->media_player_ != nullptr && volume >= 0 && volume <= 100) {
+    this->media_player_->make_call()
+        .set_volume(volume / 100.)
+        .set_command(muted ? media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_MUTE
+                           : media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_UNMUTE)
+        .perform();
+    return;
+  }
 
+  ESP_LOGD(TAG, "Stream component changed to state %d.", stream_state);
   switch (stream_state) {
     case StreamState::ERROR:
       ESP_LOGE(TAG, "stream: %s", this->stream_.error_msg_.c_str());
@@ -137,15 +147,6 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
     default:
       break;
   }
-
-  if ((stream_state == StreamState::STREAMING || stream_state == StreamState::CONNECTED_IDLE) &&
-      this->media_player_ != nullptr && volume >= 0 && volume <= 100) {
-    this->media_player_->make_call()
-        .set_volume(volume / 100.)
-        .set_command(muted ? media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_MUTE
-                           : media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_UNMUTE)
-        .perform();
-  }
 }
 
 void SnapcastClient::on_stream_update_msg(const StreamInfo &info) {
@@ -157,17 +158,19 @@ void SnapcastClient::on_stream_update_msg(const StreamInfo &info) {
     if (info.status == "playing") {
       ESP_LOGI(TAG, "Playing stream: %s\n", info.id.c_str());
       this->curr_server_url_.stream_name = info.id;
-      if (this->state_ == SnapcastClientState::IDLE) {
+      if (this->state_ == SnapcastClientState::IDLE && !this->play_requested_) {
         this->media_player_->make_call().set_media_url(this->curr_server_url_.to_str()).perform();
       } else {
         this->play_requested_ = true;
       }
     } else if (info.status != "playing") {
       this->play_requested_ = false;
-      this->media_player_->make_call()
-          .set_command(media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_STOP)
-          .perform();
-      ESP_LOGI(TAG, "Stopping stream: %s\n", info.id.c_str());
+      if (this->state_ == SnapcastClientState::PLAYING) {
+        this->media_player_->make_call()
+            .set_command(media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_STOP)
+            .perform();
+        ESP_LOGI(TAG, "Stopping stream: %s\n", info.id.c_str());
+      }
     }
   }
 }
