@@ -145,8 +145,8 @@ bool PowerDelivery::check_ams() {
 std::string PowerDelivery::get_contract_string(pd_contract_t contract) const {
   std::ostringstream oss;
   oss.precision(3);
-  oss << (contract.max_i / 100);
-  oss << "A @ ";
+  oss << (static_cast<float>(contract.max_i) / 100.f);
+  oss << "A (max) @ ";
   oss << contract.max_v * 5 / 100;
   oss << "V";
   return oss.str();
@@ -156,6 +156,7 @@ void PowerDelivery::set_contract_(pd_contract_t contract) {
   this->accepted_contract_ = contract;
   this->contract = this->get_contract_string(contract);
   this->contract_voltage = contract.max_v * 5 / 100;
+  this->contract_max_current = static_cast<float>(contract.max_i) / 100.f;
   this->contract_timer_ = millis();
 }
 
