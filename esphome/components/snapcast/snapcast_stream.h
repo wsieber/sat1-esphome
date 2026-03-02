@@ -48,7 +48,6 @@ enum class StreamState {
   STOPPING         // Requested shutdown
 };
 
-
 class SnapcastClient;
 
 class SnapcastStream {
