@@ -209,7 +209,7 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (sock < 0) {
       ESP_LOGE("transport", "Failed to create socket: errno %d", errno);
-      xTaskNotify(stream_task_handle, CONNECTION_FAILED_BIT, eSetBits);
+      xTaskNotify(stream_task_handle, CONNECTION_CLOSED_BIT, eSetBits);
       continue;
     }
 
@@ -222,7 +222,7 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
     if (err != 0) {
       ESP_LOGE("transport", "Socket unable to connect to %s: errno %d", server.c_str(), errno);
       close(sock);
-      xTaskNotify(stream_task_handle, CONNECTION_FAILED_BIT, eSetBits);
+      xTaskNotify(stream_task_handle, CONNECTION_CLOSED_BIT, eSetBits);
       continue;
     }
 
@@ -230,23 +230,17 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
     int one = 1;
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
-#ifdef TCP_KEEPIDLE
-    int idle = 30, intvl = 5, cnt = 3;
-    setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
-    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
-    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
-#endif
+// #ifdef TCP_KEEPIDLE && 0
+//     int idle = 30, intvl = 5, cnt = 3;
+//     setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+//     setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+//     setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+// #endif
     int flags = lwip_fcntl(sock, F_GETFL, 0);
     lwip_fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
     // Notify the RX task that the connection is established
     xTaskNotify(stream_task_handle, CONNECTION_ESTABLISHED_BIT, eSetBits);
-
-    SnapcastMessage *hello_msg = new HelloMessage();
-    hello_msg->set_send_time();
-    hello_msg->toBytes(tx_buffer);
-    int bytes_written = send(sock, (char *) tx_buffer, hello_msg->getMessageSize(), 0);
-    delete hello_msg;
 
     header_have = 0;
     rb_chunk = nullptr;
@@ -281,7 +275,6 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
       int sel = lwip_select(sock + 1, &read_fds, NULL, NULL, &timeout);
       if (sel < 0) {
         ESP_LOGE("transport", "select() error: errno %d", errno);
-        xTaskNotify(stream_task_handle, CONNECTION_DROPPED_BIT, eSetBits);
         break;
       }
 
@@ -315,14 +308,12 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
             }
             if (r == 0) {
               ESP_LOGI("transport", "recv() EOF (peer closed)");
-              xTaskNotify(stream_task_handle, CONNECTION_DROPPED_BIT, eSetBits);
               goto connection_done;
             }
             int e = errno;
             if (e == EAGAIN || e == EWOULDBLOCK)
               break;
             ESP_LOGE("transport", "recv(discard) error: errno=%d (%s)", e, strerror(e));
-            xTaskNotify(stream_task_handle, CONNECTION_DROPPED_BIT, eSetBits);
             goto connection_done;
           }
 
@@ -335,14 +326,12 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
                 // keep looping; maybe more data available
               } else if (r == 0) {
                 ESP_LOGI("transport", "recv() EOF (peer closed)");
-                xTaskNotify(stream_task_handle, CONNECTION_DROPPED_BIT, eSetBits);
                 goto connection_done;
               } else {
                 int e = errno;
                 if (e == EAGAIN || e == EWOULDBLOCK)
                   break;  // no more for now
                 ESP_LOGE("transport", "recv(header) error: errno=%d (%s)", e, strerror(e));
-                xTaskNotify(stream_task_handle, CONNECTION_DROPPED_BIT, eSetBits);
                 goto connection_done;
               }
             }
@@ -418,7 +407,6 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
 
           if (r == 0) {
             ESP_LOGI("transport", "recv() EOF (peer closed)");
-            xTaskNotify(stream_task_handle, CONNECTION_DROPPED_BIT, eSetBits);
             goto connection_done;
           }
 
@@ -428,8 +416,11 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
             break;
           }
 
-          ESP_LOGE("transport", "recv(body) error: errno=%d (%s)", e, strerror(e));
-          xTaskNotify(stream_task_handle, CONNECTION_DROPPED_BIT, eSetBits);
+          int so_err = 0;
+          socklen_t sl = sizeof(so_err);
+          getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_err, &sl);
+          ESP_LOGE("transport", "recv(body) errno=%d (%s), SO_ERROR=%d (%s)", errno, strerror(errno), so_err,
+                   strerror(so_err));
           goto connection_done;
         }
         taskYIELD();
@@ -459,7 +450,7 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
     if (stop_requested)
       break;
   }
-  free(tx_buffer);
+  psram_allocator.deallocate(tx_buffer, TX_BUFFER_SIZE);
   xTaskNotify(stream_task_handle, TASK_CLOSING_BIT, eSetBits);
 }
 
@@ -471,6 +462,7 @@ esp_err_t SnapcastStream::read_and_process_messages_(ChunkedRingBuffer *read_rin
     this->error_msg_ = "Read ring buffer is not available";
     return ESP_FAIL;
   }
+  
   while (millis() < timeout) {
     size_t len = 0;
     uint8_t *chunk = read_ring_buffer->get_next_chunk(len, timeout_ms);
@@ -494,38 +486,49 @@ esp_err_t SnapcastStream::read_and_process_messages_(ChunkedRingBuffer *read_rin
     uint8_t *payload = chunk + sizeof(MessageHeader);
     size_t payload_len = msg->typed_message_size;
     switch (msg->getMessageType()) {
-      case message_type::kCodecHeader: {
-        if (this->state_ != StreamState::STREAMING) {
-          read_ring_buffer->release_read_chunk(chunk);
-          continue;
-        }
+      case message_type::kCodecHeader: {        
         CodecHeaderPayloadView codec_header_payload;
         if (!codec_header_payload.bind(payload, payload_len)) {
           read_ring_buffer->release_read_chunk(chunk);
           return ESP_FAIL;
         }
-        timed_chunk_t *timed_chunk = nullptr;
-        size_t size = codec_header_payload.payload_size;
-        timed_ring_buffer->acquire_write_chunk(&timed_chunk, sizeof(timed_chunk_t) + size, pdMS_TO_TICKS(timeout_ms));
-        if (timed_chunk == nullptr) {
-          this->error_msg_ = "Error acquiring write chunk from ring buffer";
-          read_ring_buffer->release_read_chunk(chunk);
-          return ESP_FAIL;
+        if (this->codec_header_) {
+          free(this->codec_header_);
         }
-        timed_chunk->stamp = tv_t(0, 0);
-        if (!codec_header_payload.copyPayloadTo(timed_chunk->data, size)) {
-          timed_ring_buffer->release_write_chunk(timed_chunk, size);
+        size_t size = codec_header_payload.payload_size;
+        RAMAllocator<uint8_t> psram_allocator;
+        this->codec_header_ = psram_allocator.allocate(size);
+        this->codec_header_size_ = size;
+        if (!codec_header_payload.copyPayloadTo(this->codec_header_, size)) {
+          free(this->codec_header_);
+          this->codec_header_ = nullptr;
           this->error_msg_ = "Error copying codec header payload";
           read_ring_buffer->release_read_chunk(chunk);
           return ESP_FAIL;
         }
-        timed_ring_buffer->release_write_chunk(timed_chunk, size);
-        this->codec_header_sent_ = true;
         read_ring_buffer->release_read_chunk(chunk);
         return ESP_OK;
       } break;
       case message_type::kWireChunk: {
-        if (this->state_ != StreamState::STREAMING || !this->codec_header_sent_) {
+        if (this->state_ == StreamState::STREAMING && this->codec_header_ && !this->codec_header_sent_){
+          timed_chunk_t *timed_chunk = nullptr;
+          timed_ring_buffer->acquire_write_chunk(&timed_chunk, sizeof(timed_chunk_t) + this->codec_header_size_, pdMS_TO_TICKS(timeout_ms));
+          if (timed_chunk == nullptr) {
+            this->error_msg_ = "Error acquiring write chunk from ring buffer";
+            read_ring_buffer->release_read_chunk(chunk);
+            return ESP_FAIL;
+          }
+          timed_chunk->stamp = tv_t(0, 0);
+          if (!std::memcpy(timed_chunk->data, this->codec_header_, this->codec_header_size_)){
+            timed_ring_buffer->release_write_chunk(timed_chunk, this->codec_header_size_);
+            this->error_msg_ = "Error copying codec header payload";
+            read_ring_buffer->release_read_chunk(chunk);
+            return ESP_FAIL;
+          }
+          timed_ring_buffer->release_write_chunk(timed_chunk, this->codec_header_size_);
+          this->codec_header_sent_ = true;
+        }
+        if (this->state_ != StreamState::STREAMING || !this->codec_header_sent_ || !this->time_stats_.is_ready()) {
           read_ring_buffer->release_read_chunk(chunk);
           vTaskDelay(pdMS_TO_TICKS(5));
           continue;
@@ -588,15 +591,16 @@ esp_err_t SnapcastStream::read_and_process_messages_(ChunkedRingBuffer *read_rin
         this->on_time_msg_(*msg, stamp);
       }
         read_ring_buffer->release_read_chunk(chunk);
+        vTaskDelay(pdMS_TO_TICKS(1));
         continue;
       case message_type::kServerSettings: {
         ServerSettingsMessage server_settings_msg(*msg, payload, payload_len);
         this->on_server_settings_msg_(server_settings_msg);
-        // server_settings_msg.print();
-      }
         read_ring_buffer->release_read_chunk(chunk);
+        vTaskDelay(pdMS_TO_TICKS(1));
         continue;
-
+      }
+        
       default:
         this->error_msg_ = "Unknown message type: " + to_string(msg->type);
         read_ring_buffer->release_read_chunk(chunk);
@@ -657,25 +661,47 @@ void SnapcastStream::stream_task_() {
     ESP_LOGE(TAG, "Failed to create Snapcast RX/TX task!");
     return;
   }
+  
+  const uint32_t retry_window_ms = 30000;   // e.g. retry for 30 seconds then give up
+  const uint32_t max_backoff_ms  = 10000;
+
+  bool desired_connected = false;
+  bool destroy_requested = false;
+
+  uint32_t reconnect_start_ms = 0;  // 0 means not currently retrying
+  uint32_t backoff_ms = 250;
+
+  auto request_destroy = [&]() {
+    if (destroy_requested) return;
+    destroy_requested = true;
+    desired_connected = false;
+    this->start_after_connecting_ = false;
+    this->set_state_(StreamState::STOPPING);
+
+    // Tell transport to stop and exit
+    xTaskNotify(transport_task_handle, STOP_BIT, eSetBits);
+  };
 
   constexpr TickType_t STREAMING_WAIT = pdMS_TO_TICKS(5);
   constexpr TickType_t IDLE_WAIT = pdMS_TO_TICKS(100);
-
-  bool reconnect_pending = false;
   uint32_t notify_value;
   this->set_state_(StreamState::DISCONNECTED);
   while (true) {
     TickType_t wait_time = (this->state_ == StreamState::STREAMING) ? STREAMING_WAIT : IDLE_WAIT;
     if (xTaskNotifyWait(0, 0xFFFFFFFF, &notify_value, wait_time)) {
       if (notify_value & CONNECT_BIT) {
+        desired_connected = true;
+        destroy_requested = false;
+
+        reconnect_start_ms = 0;
+        backoff_ms = 250;
         // Tell transport to connect
         this->set_state_(StreamState::CONNECTING);
         xTaskNotify(transport_task_handle, CONNECT_BIT, eSetBits);
       }
 
       if (notify_value & STOP_BIT) {
-        this->set_state_(StreamState::STOPPING);
-        xTaskNotify(transport_task_handle, STOP_BIT, eSetBits);
+        request_destroy();
       }
 
       if (notify_value & START_STREAM_BIT) {
@@ -687,16 +713,16 @@ void SnapcastStream::stream_task_() {
       }
 
       if (notify_value & SEND_REPORT_BIT) {
-        if (this->state_ != StreamState::DISCONNECTED) {
+        if (this->state_ == StreamState::CONNECTED_IDLE || this->state_ == StreamState::STREAMING) {
           this->send_report_();
         }
       }
 
       if (notify_value & CONNECTION_ESTABLISHED_BIT) {
-        this->reconnect_counter_ = 0;
-        this->send_hello_();
-        this->time_stats_.reset();
-        set_state_(StreamState::CONNECTED_IDLE);
+        reconnect_start_ms = 0;
+        backoff_ms = 250; 
+        set_state_(StreamState::CONNECTED_IDLE);        
+        this->send_hello_();        
         if (this->start_after_connecting_) {
           this->start_streaming_();
         }
@@ -704,33 +730,29 @@ void SnapcastStream::stream_task_() {
 
       if (notify_value & TASK_CLOSING_BIT) {
         // tx_rx task is closing, we can exit the loop
-        this->set_state_(StreamState::DISCONNECTED);
         break;
       }
-      if (notify_value & CONNECTION_FAILED_BIT) {
-        if (this->reconnect_on_error_()) {
-          this->set_state_(StreamState::RECONNECTING);
-          vTaskDelay(pdMS_TO_TICKS(1000));
-          xTaskNotify(transport_task_handle, CONNECT_BIT, eSetBits);
-        }
-      }
-
-      if (notify_value & CONNECTION_DROPPED_BIT) {
-        if (this->reconnect_on_error_()) {
-          this->error_msg_ = "Failed to connect or connection dropped";
-          this->set_state_(StreamState::RECONNECTING);
-          reconnect_pending = true;
-        } else {
-          this->error_msg_ = "Failed to connect or connection dropped";
-          this->set_state_(StreamState::ERROR);
-        }
-      }
-
+      
       if (notify_value & CONNECTION_CLOSED_BIT) {
         this->set_state_(StreamState::DISCONNECTED);
-        if (reconnect_pending) {
-          reconnect_pending = false;
-          xTaskNotify(transport_task_handle, CONNECT_BIT, eSetBits);
+        this->codec_header_sent_ = false;
+        if (destroy_requested || !desired_connected) {
+          // no reconnect
+        } else {
+          uint32_t now = millis();
+          // start retry window if first failure
+          if (reconnect_start_ms == 0) reconnect_start_ms = now;
+          // budget check
+          if ((now - reconnect_start_ms) > retry_window_ms) {
+            this->error_msg_ = "Reconnect budget exceeded, stopping";
+            request_destroy();
+          } else {
+            // backoff and retry
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms));
+            xTaskNotify(transport_task_handle, CONNECT_BIT, eSetBits);
+            backoff_ms = std::min(backoff_ms * 2u, max_backoff_ms);
+            this->set_state_(StreamState::RECONNECTING);
+          }
         }
       }
     }
@@ -739,10 +761,8 @@ void SnapcastStream::stream_task_() {
       this->send_time_sync_();
       const uint32_t timeout = this->time_stats_.is_ready() ? 500 : 10;
       if (this->read_and_process_messages_(stream_package_buffer.get(), timeout) == ESP_FAIL) {
-        this->error_msg_ = "Error reading or processing messages, initiating a new session";
         this->set_state_(StreamState::RECONNECTING);
         this->start_after_connecting_ = true;
-        reconnect_pending = true;
         xTaskNotify(transport_task_handle, DISCONNECT_BIT, eSetBits);
       }
     }
@@ -785,9 +805,8 @@ void SnapcastStream::start_streaming_() {
     this->set_state_(StreamState::ERROR);
     return;
   }
-  this->codec_header_sent_ = false;
-  this->send_hello_();
   rb->reset();
+  this->codec_header_sent_ = false;
   this->start_after_connecting_ = false;
   this->set_state_(StreamState::STREAMING);
   return;

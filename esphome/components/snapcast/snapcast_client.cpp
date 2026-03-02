@@ -128,6 +128,9 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
       break;
     case StreamState::DESTROYED:
       this->state_ = SnapcastClientState::DISCONNECTED;
+      this->cntrl_session_.disconnect();
+      this->server_.reset();
+
       if (this->enabled_) {
         this->enable_loop();
       }

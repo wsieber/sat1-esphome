@@ -198,7 +198,7 @@ void SnapcastControlSession::notification_loop() {
                 } else if (method == "Stream.OnProperties") {
                   JsonObject params = root["params"];
                   if (params["id"].as<std::string>() == this->client_state_.stream_id) {
-                    StreamInfo sInfo;
+                    StreamInfo &sInfo = this->known_streams_[this->client_state_.stream_id];
                     sInfo.from_stream_properties(params["properties"]);
                     if (this->on_stream_update_) {
                       this->on_stream_update_(sInfo);
@@ -231,16 +231,6 @@ void SnapcastControlSession::notification_loop() {
                     if (this->on_stream_update_) {
                       this->on_stream_update_(sInfo);
                     }
-                  }
-                } else if (method == "Client.OnConnect") {
-                  JsonObject params = root["params"];
-                  if (params["id"].as<std::string>() == this->client_id_) {
-                    this->send_rpc_request_(
-                        "Server.GetStatus",
-                        [](JsonObject params) {
-                          // no params
-                        },
-                        static_cast<uint32_t>(RequestId::GetServerStatus));
                   }
                 }
               }

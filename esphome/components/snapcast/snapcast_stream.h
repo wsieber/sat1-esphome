@@ -48,7 +48,6 @@ enum class StreamState {
   STOPPING         // Requested shutdown
 };
 
-constexpr uint8_t MAX_RECONNECTIONS = 3;
 
 class SnapcastClient;
 
@@ -102,7 +101,6 @@ class SnapcastStream {
   friend SnapcastClient;
   void on_server_settings_msg_(const ServerSettingsMessage &msg);
   void on_time_msg_(MessageHeader msg, tv_t time);
-  bool reconnect_on_error_() { return ++(this->reconnect_counter_) < MAX_RECONNECTIONS; }
 
   std::string server_;
   uint32_t port_;
@@ -110,7 +108,6 @@ class SnapcastStream {
   int32_t latency_{0};
   std::atomic<uint8_t> volume_{0};
   std::atomic<bool> muted_{false};
-  uint32_t reconnect_counter_{0};
 
   StreamState state_{StreamState::DESTROYED};
   std::string error_msg_;
@@ -149,6 +146,8 @@ class SnapcastStream {
 
   bool start_after_connecting_{false};
   bool codec_header_sent_{false};
+  uint8_t *codec_header_{nullptr};
+  size_t codec_header_size_{0};
 };
 
 }  // namespace snapcast
