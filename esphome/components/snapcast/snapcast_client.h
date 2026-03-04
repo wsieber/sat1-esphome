@@ -67,7 +67,7 @@ class SnapcastClient : public Component {
 
   // report volume to the snapcast server via the binary stream connection
   void report_volume(float volume, bool muted);
-  void on_stream_update_msg(const StreamInfo &info);
+  void on_stream_update_msg(StreamStatus status, std::string stream_id);
   void on_stream_state_update(StreamState state, uint8_t volume, bool muted);
 
   void enable() {

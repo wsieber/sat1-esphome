@@ -143,7 +143,6 @@ class SnapcastStream {
 
   esp_err_t read_and_process_messages_(ChunkedRingBuffer *read_ring_buffer, uint32_t timeout_ms);
 
-  bool start_after_connecting_{false};
   bool codec_header_sent_{false};
   uint8_t *codec_header_{nullptr};
   size_t codec_header_size_{0};

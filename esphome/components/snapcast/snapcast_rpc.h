@@ -38,6 +38,12 @@ enum class RequestId : uint32_t {
   // etc.
 };
 
+enum class StreamStatus : uint8_t {
+  UNKNOWN = 0,
+  IDLE = 1,
+  PLAYING = 2,
+};
+
 struct ClientState {
   std::string group_id;
   std::string stream_id;
@@ -64,7 +70,7 @@ struct ClientState {
 
 struct StreamInfo {
   std::string id;
-  std::string status;
+  StreamStatus status;
   bool canPlay;
   bool canPause;
   bool canSeek;
@@ -76,7 +82,16 @@ struct StreamInfo {
       return false;
 
     id = stream_obj["id"].as<std::string>();
-    status = stream_obj["status"].as<std::string>();
+    const char *status_str = stream_obj["status"].as<const char *>();
+    if (!status_str)
+      return false;
+    if (strcmp(status_str, "idle") == 0) {
+      status = StreamStatus::IDLE;
+    } else if (strcmp(status_str, "playing") == 0) {
+      status = StreamStatus::PLAYING;
+    } else {
+      status = StreamStatus::UNKNOWN;
+    }
     canPlay = stream_obj["canPlay"].as<bool>();
     canPause = stream_obj["canPause"].as<bool>();
     canSeek = stream_obj["canSeek"].as<bool>();
@@ -95,7 +110,16 @@ struct StreamInfo {
   }
 
   bool from_stream_properties(JsonObject properties) {
-    status = properties["playbackStatus"].as<std::string>();
+    const char *status_str = properties["playbackStatus"].as<const char *>();
+    if (!status_str)
+      return false;
+    if (strcmp(status_str, "idle") == 0) {
+      status = StreamStatus::IDLE;
+    } else if (strcmp(status_str, "playing") == 0) {
+      status = StreamStatus::PLAYING;
+    } else {
+      status = StreamStatus::UNKNOWN;
+    }
     canPlay = properties["canPlay"].as<bool>();
     canPause = properties["canPause"].as<bool>();
     canSeek = properties["canSeek"].as<bool>();
@@ -106,7 +130,7 @@ struct StreamInfo {
 
   bool set_id(std::string stream_id) {
     id = stream_id;
-    status = "idle";
+    status = StreamStatus::IDLE;
     return true;
   }
 
@@ -122,7 +146,9 @@ class SnapcastControlSession {
 
   void notification_loop();
 
-  void set_on_stream_update(std::function<void(const StreamInfo &)> cb) { this->on_stream_update_ = std::move(cb); }
+  void set_on_stream_update(std::function<void(StreamStatus, std::string)> cb) {
+    this->on_stream_update_ = std::move(cb);
+  }
 
  protected:
   friend SnapcastClient;
@@ -139,7 +165,7 @@ class SnapcastControlSession {
   std::string line_buffer_;
   ClientState client_state_;
   std::map<std::string, StreamInfo> known_streams_;
-  std::function<void(const StreamInfo &)> on_stream_update_;
+  std::function<void(StreamStatus status, std::string stream_id)> on_stream_update_;
 };
 
 }  // namespace snapcast

@@ -210,14 +210,24 @@ esp_err_t AudioReader::start(snapcast::SnapcastStream *stream, AudioFileType &fi
   this->snapcast_stream_ = stream;
   this->audio_file_type_ = AudioFileType::FLAC;
   file_type = AudioFileType::FLAC;
-
-  auto rb = this->output_ring_buffer_.lock();
-  if (rb) {
-    rb->reset();
-  }
-
   this->snapcast_stream_->start_with_notify(this->output_ring_buffer_, xTaskGetCurrentTaskHandle());
 
+  uint32_t timeout_at = millis() + 2000;
+  while (true) {
+    uint32_t state_value;
+    if (xTaskNotifyWait(0, 0xFFFFFFFFUL, &state_value, pdMS_TO_TICKS(500)) == pdTRUE) {
+      snapcast::StreamState new_state = static_cast<snapcast::StreamState>(state_value);
+      if (new_state == snapcast::StreamState::ERROR) {
+        return -1;
+      }
+      if (new_state == snapcast::StreamState::STREAMING) {
+        return ESP_OK;
+      }
+    }
+    if (millis() > timeout_at) {
+      return -1;
+    }
+  }
   return ESP_OK;
 }
 #endif
@@ -368,7 +378,7 @@ AudioReaderState AudioReader::snapcast_read_() {
     if (new_state == snapcast::StreamState::ERROR) {
       return AudioReaderState::FAILED;
     }
-    if (new_state == snapcast::StreamState::CONNECTED_IDLE) {
+    if (new_state == snapcast::StreamState::CONNECTED_IDLE || new_state == snapcast::StreamState::DESTROYED) {
       return AudioReaderState::FINISHED;
     }
   }

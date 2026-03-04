@@ -73,8 +73,9 @@ void SnapcastClient::on_network_ready_() {
   });
 
   // callback on status changes, received from snapcast control (RPC) stream
-  this->cntrl_session_.set_on_stream_update(
-      [this](const StreamInfo &info) { this->defer([this, info]() { this->on_stream_update_msg(info); }); });
+  this->cntrl_session_.set_on_stream_update([this](StreamStatus status, std::string stream_id) {
+    this->defer([this, status, stream_id]() { this->on_stream_update_msg(status, stream_id); });
+  });
 }
 
 error_t SnapcastClient::connect_to_server(std::string url, uint32_t stream_port, uint32_t rpc_port) {
@@ -130,6 +131,7 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
       this->state_ = SnapcastClientState::DISCONNECTED;
       this->cntrl_session_.disconnect();
       this->server_.reset();
+      this->play_requested_ = false;
 
       if (this->enabled_) {
         this->enable_loop();
@@ -138,6 +140,7 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
     case StreamState::CONNECTED_IDLE:
       this->state_ = SnapcastClientState::IDLE;
       if (this->play_requested_) {
+        ESP_LOGD(TAG, "Calling MediaPlayer Play from on_stream_state_update");
         this->media_player_->make_call().set_media_url(this->curr_server_url_.to_str()).perform();
         this->play_requested_ = false;
       }
@@ -146,33 +149,32 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
       break;
     case StreamState::STREAMING:
       this->state_ = SnapcastClientState::PLAYING;
+      this->play_requested_ = false;
       break;
     default:
       break;
   }
 }
 
-void SnapcastClient::on_stream_update_msg(const StreamInfo &info) {
-  ESP_LOGI(TAG, "Snapcast-stream updated: status=%s", info.status.c_str());
-  if (info.status == "unknown") {
-    return;
-  }
+void SnapcastClient::on_stream_update_msg(StreamStatus status, std::string stream_id) {
+  ESP_LOGI(TAG, "Snapcast-stream updated: status=%d", status);
   if (this->media_player_ != nullptr) {
-    if (info.status == "playing") {
-      ESP_LOGI(TAG, "Playing stream: %s\n", info.id.c_str());
-      this->curr_server_url_.stream_name = info.id;
+    if (status == StreamStatus::PLAYING) {
+      ESP_LOGI(TAG, "Playing stream: %s\n", stream_id.c_str());
+      this->curr_server_url_.stream_name = stream_id;
       if (this->state_ == SnapcastClientState::IDLE && !this->play_requested_) {
+        ESP_LOGD(TAG, "Calling MediaPlayer Play from on_stream_update_msg");
         this->media_player_->make_call().set_media_url(this->curr_server_url_.to_str()).perform();
       } else {
         this->play_requested_ = true;
       }
-    } else if (info.status != "playing") {
+    } else if (status == StreamStatus::IDLE) {
       this->play_requested_ = false;
       if (this->state_ == SnapcastClientState::PLAYING) {
         this->media_player_->make_call()
             .set_command(media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_STOP)
             .perform();
-        ESP_LOGI(TAG, "Stopping stream: %s\n", info.id.c_str());
+        ESP_LOGI(TAG, "Stopping stream: %s\n", stream_id.c_str());
       }
     }
   }

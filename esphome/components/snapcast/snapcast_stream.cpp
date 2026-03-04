@@ -151,6 +151,7 @@ esp_err_t SnapcastStream::start_with_notify(std::weak_ptr<esphome::TimedRingBuff
 }
 
 esp_err_t SnapcastStream::stop_streaming() {
+  ESP_LOGD(TAG, "Stop streaming called...");
   xTaskNotify(this->stream_task_handle_, STOP_STREAM_BIT, eSetBits);
   return ESP_OK;
 }
@@ -230,12 +231,12 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
     int one = 1;
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
-    // #ifdef TCP_KEEPIDLE && 0
-    //     int idle = 30, intvl = 5, cnt = 3;
-    //     setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
-    //     setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
-    //     setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
-    // #endif
+#ifdef TCP_KEEPIDLE
+    int idle = 30, intvl = 5, cnt = 3;
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+#endif
     int flags = lwip_fcntl(sock, F_GETFL, 0);
     lwip_fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
@@ -614,14 +615,29 @@ esp_err_t SnapcastStream::read_and_process_messages_(ChunkedRingBuffer *read_rin
 void SnapcastStream::stream_task_() {
   std::shared_ptr<ChunkedRingBuffer> stream_package_buffer = ChunkedRingBuffer::create(256 * 1024);
 
+  auto on_exit_task = [&]() {
+    if (this->outgoing_queue_) {
+      // Drain and delete any pending messages so they don't leak.
+      SnapcastMessage *m = nullptr;
+      while (xQueueReceive(this->outgoing_queue_, &m, 0) == pdPASS) {
+        delete m;
+      }
+      vQueueDelete(this->outgoing_queue_);
+      this->outgoing_queue_ = nullptr;
+    }
+    this->set_state_(StreamState::DESTROYED);
+  };
+
   if (stream_package_buffer == nullptr) {
     ESP_LOGE(TAG, "Failed to create stream package buffer!");
+    on_exit_task();
     return;
   }
 
   this->outgoing_queue_ = xQueueCreate(10, sizeof(SnapcastMessage *));
   if (this->outgoing_queue_ == NULL) {
     ESP_LOGE(TAG, "Failed to create outgoing queue!");
+    on_exit_task();
     return;
   }
 
@@ -659,14 +675,17 @@ void SnapcastStream::stream_task_() {
       1);
 
   if (result != pdPASS) {
+    delete args;
     ESP_LOGE(TAG, "Failed to create Snapcast RX/TX task!");
+    on_exit_task();
     return;
   }
 
-  const uint32_t retry_window_ms = 30000;  // e.g. retry for 30 seconds then give up
+  const uint32_t retry_window_ms = 5000;  // retry for 5 seconds then give up
   const uint32_t max_backoff_ms = 10000;
 
   bool desired_connected = false;
+  bool desired_streaming = false;
   bool destroy_requested = false;
 
   uint32_t reconnect_start_ms = 0;  // 0 means not currently retrying
@@ -677,7 +696,7 @@ void SnapcastStream::stream_task_() {
       return;
     destroy_requested = true;
     desired_connected = false;
-    this->start_after_connecting_ = false;
+    desired_streaming = false;
     this->set_state_(StreamState::STOPPING);
 
     // Tell transport to stop and exit
@@ -707,10 +726,12 @@ void SnapcastStream::stream_task_() {
       }
 
       if (notify_value & START_STREAM_BIT) {
+        desired_streaming = true;
         this->start_streaming_();
       }
 
       if (notify_value & STOP_STREAM_BIT) {
+        desired_streaming = false;
         this->stop_streaming_();
       }
 
@@ -723,15 +744,20 @@ void SnapcastStream::stream_task_() {
       if (notify_value & CONNECTION_ESTABLISHED_BIT) {
         reconnect_start_ms = 0;
         backoff_ms = 250;
-        set_state_(StreamState::CONNECTED_IDLE);
         this->send_hello_();
-        if (this->start_after_connecting_) {
+        this->time_stats_.reset();
+        if (desired_streaming) {
           this->start_streaming_();
+        } else {
+          set_state_(StreamState::CONNECTED_IDLE);
         }
       }
 
       if (notify_value & TASK_CLOSING_BIT) {
         // tx_rx task is closing, we can exit the loop
+        if (desired_streaming) {
+          this->set_state_(StreamState::ERROR);
+        }
         break;
       }
 
@@ -765,23 +791,12 @@ void SnapcastStream::stream_task_() {
       const uint32_t timeout = this->time_stats_.is_ready() ? 500 : 10;
       if (this->read_and_process_messages_(stream_package_buffer.get(), timeout) == ESP_FAIL) {
         this->set_state_(StreamState::RECONNECTING);
-        this->start_after_connecting_ = true;
         xTaskNotify(transport_task_handle, DISCONNECT_BIT, eSetBits);
       }
     }
   }
 
-  if (this->outgoing_queue_) {
-    // Drain and delete any pending messages so they don't leak.
-    SnapcastMessage *m = nullptr;
-    while (xQueueReceive(this->outgoing_queue_, &m, 0) == pdPASS) {
-      delete m;
-    }
-    vQueueDelete(this->outgoing_queue_);
-    this->outgoing_queue_ = nullptr;
-  }
-
-  this->set_state_(StreamState::DESTROYED);
+  on_exit_task();
 }
 
 void SnapcastStream::set_state_(StreamState new_state) {
@@ -796,30 +811,34 @@ void SnapcastStream::set_state_(StreamState new_state) {
 
 void SnapcastStream::start_streaming_() {
   if (this->state_ == StreamState::STREAMING) {
+    // notify listeners that already in streaming state
+    this->set_state_(StreamState::STREAMING);
     return;
   }
-  if (this->state_ != StreamState::CONNECTED_IDLE) {
-    this->start_after_connecting_ = true;
+  if (this->state_ == StreamState::CONNECTED_IDLE || this->state_ == StreamState::RECONNECTING) {
+    auto rb = this->write_ring_buffer_.lock();
+    if (!rb) {
+      this->error_msg_ = "Ring-buffer not set yet, but trying to start streaming...";
+      this->set_state_(StreamState::ERROR);
+      return;
+    }
+    rb->reset();
+    this->codec_header_sent_ = false;
+    this->send_hello_();
+    this->set_state_(StreamState::STREAMING);
     return;
   }
-  auto rb = this->write_ring_buffer_.lock();
-  if (!rb) {
-    this->error_msg_ = "Ring-buffer not set yet, but trying to start streaming...";
-    this->set_state_(StreamState::ERROR);
+  if (this->state_ == StreamState::RECONNECTING) {
+    this->send_hello_();
+    this->set_state_(StreamState::STREAMING);
     return;
   }
-  rb->reset();
-  this->codec_header_sent_ = false;
-  this->start_after_connecting_ = false;
-  this->set_state_(StreamState::STREAMING);
-  return;
 }
 
 void SnapcastStream::stop_streaming_() {
   if (this->state_ != StreamState::STREAMING) {
     return;
   }
-  this->start_after_connecting_ = false;
   this->set_state_(StreamState::CONNECTED_IDLE);
 }
 
