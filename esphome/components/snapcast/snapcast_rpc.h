@@ -21,6 +21,7 @@
 
 #include <string>
 #include <map>
+#include <atomic>
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 
@@ -32,34 +33,95 @@
 namespace esphome {
 namespace snapcast {
 
-enum class RequestId : uint32_t {
-  GetServerStatus = 1,
-  GetGroupStatus = 2,
-  // etc.
-};
-
 enum class StreamStatus : uint8_t {
   UNKNOWN = 0,
   IDLE = 1,
   PLAYING = 2,
 };
 
+static inline StreamStatus parse_status(const char* s) {
+  if (!s) return StreamStatus::UNKNOWN;
+  if (s[0] == 'i') return StreamStatus::IDLE;
+  if (s[0] == 'p') return StreamStatus::PLAYING;
+  return StreamStatus::UNKNOWN;
+}
+
+struct StreamInfo {
+  std::string id;
+  StreamStatus status{StreamStatus::UNKNOWN};
+  bool canPlay{false};
+  bool canPause{false};
+  bool canSeek{false};
+  bool canGoNext{false};
+  bool canGoPrevious{false};
+
+  bool init_from_json(JsonObject stream_obj) {
+    const char* sid = stream_obj["id"].as<const char*>();
+    if (!sid) return false;
+    id = sid;
+    return from_json(stream_obj);
+  }
+
+  bool from_json(JsonObject stream_obj) {
+    const char* sid = stream_obj["id"].as<const char*>();
+    if (!sid) return false;
+    id = sid;
+    
+    status = parse_status(stream_obj["status"].as<const char*>());
+    canPlay = stream_obj["canPlay"] | false;
+    canPause = stream_obj["canPause"] | false;
+    canSeek = stream_obj["canSeek"] | false;
+    canGoNext = stream_obj["canGoNext"] | false;
+    canGoPrevious = stream_obj["canGoPrevious"] | false;
+    return true;
+  }
+
+  bool update_from_stream_properties(JsonObject properties) {
+    status = parse_status(properties["playbackStatus"].as<const char*>());
+    canPlay = properties["canPlay"] | false;
+    canPause = properties["canPause"] | false;
+    canSeek = properties["canSeek"] | false;
+    canGoNext = properties["canGoNext"] | false;
+    canGoPrevious = properties["canGoPrevious"] | false;
+    return true;
+  }
+
+  bool set_id(const std::string& stream_id) {
+    id = stream_id;
+    status = StreamStatus::IDLE;
+    return true;
+  }    
+};
+
+
 struct ClientState {
   std::string group_id;
   std::string stream_id;
+  std::vector<std::string> group_members;
   int32_t latency = 0;
   uint8_t volume_percent = 100;
   bool muted = false;
 
-  bool from_groups_json(JsonArray groups, std::string client_id) {
+
+  bool from_groups_json(JsonArray groups, std::string &client_id) {
+    this->group_members.clear();
     for (JsonObject group_obj : groups) {
-      for (JsonObject client_obj : group_obj["clients"].as<JsonArray>()) {
-        if (client_obj["id"].as<std::string>() == client_id) {
-          group_id = group_obj["id"].as<std::string>();
-          stream_id = group_obj["stream_id"].as<std::string>();
+      JsonArray clients = group_obj["clients"].as<JsonArray>();
+      for (JsonObject client_obj : clients) {
+        const char* id = client_obj["id"].as<const char*>();
+        if (!id) continue;
+        if (id == client_id) {
+          group_id = group_obj["id"].as<const char*>();
+          stream_id = group_obj["stream_id"].as<const char*>();
           latency = client_obj["config"]["latency"].as<int32_t>();
           volume_percent = client_obj["config"]["volume"]["percent"].as<uint8_t>();
           muted = client_obj["config"]["volume"]["muted"].as<bool>();
+          for (JsonObject member : clients) {
+            const char* member_id = member["id"].as<const char*>();
+            if (member_id) {
+              group_members.emplace_back(member_id);
+            }
+          }
           return true;
         }
       }
@@ -68,74 +130,22 @@ struct ClientState {
   }
 };
 
-struct StreamInfo {
-  std::string id;
-  StreamStatus status;
-  bool canPlay;
-  bool canPause;
-  bool canSeek;
-  bool canGoNext;
-  bool canGoPrevious;
 
-  bool from_json(JsonObject stream_obj) {
-    if (!stream_obj["id"].is<std::string>())
-      return false;
+using RpcResponseCb = std::function<void(JsonObject root)>;
 
-    id = stream_obj["id"].as<std::string>();
-    const char *status_str = stream_obj["status"].as<const char *>();
-    if (!status_str)
-      return false;
-    if (strcmp(status_str, "idle") == 0) {
-      status = StreamStatus::IDLE;
-    } else if (strcmp(status_str, "playing") == 0) {
-      status = StreamStatus::PLAYING;
-    } else {
-      status = StreamStatus::UNKNOWN;
-    }
-    canPlay = stream_obj["canPlay"].as<bool>();
-    canPause = stream_obj["canPause"].as<bool>();
-    canSeek = stream_obj["canSeek"].as<bool>();
-    canGoNext = stream_obj["canGoNext"].as<bool>();
-    canGoPrevious = stream_obj["canGoPrevious"].as<bool>();
-    return true;
-  }
-
-  bool from_streams_json(JsonArray streams, std::string stream_id) {
-    for (JsonObject stream_obj : streams) {
-      if (stream_obj["id"].as<std::string>() == stream_id) {
-        return this->from_json(stream_obj);
-      }
-    }
-    return false;
-  }
-
-  bool from_stream_properties(JsonObject properties) {
-    const char *status_str = properties["playbackStatus"].as<const char *>();
-    if (!status_str)
-      return false;
-    if (strcmp(status_str, "idle") == 0) {
-      status = StreamStatus::IDLE;
-    } else if (strcmp(status_str, "playing") == 0) {
-      status = StreamStatus::PLAYING;
-    } else {
-      status = StreamStatus::UNKNOWN;
-    }
-    canPlay = properties["canPlay"].as<bool>();
-    canPause = properties["canPause"].as<bool>();
-    canSeek = properties["canSeek"].as<bool>();
-    canGoNext = properties["canGoNext"].as<bool>();
-    canGoPrevious = properties["canGoPrevious"].as<bool>();
-    return true;
-  }
-
-  bool set_id(std::string stream_id) {
-    id = stream_id;
-    status = StreamStatus::IDLE;
-    return true;
-  }
-
-  bool set_to_default() { return this->set_id("default"); }
+struct RpcRequest {
+  std::string method;
+  uint32_t id;
+  std::function<void(JsonObject params)> fill_params;
+  RpcResponseCb on_response;     // optional
+  uint32_t timeout_ms;
 };
+
+struct PendingCb {
+  RpcResponseCb cb;
+  uint32_t expires_ms;
+};
+
 
 class SnapcastClient;
 
@@ -150,10 +160,23 @@ class SnapcastControlSession {
     this->on_stream_update_ = std::move(cb);
   }
 
+  void request_stopping();
+  bool send_rpc_async(
+    const std::string &method,
+    std::function<void(JsonObject)> fill_params,
+    RpcResponseCb on_response,
+    uint32_t timeout_ms
+  );
+
+  ClientState snapshot() {
+    xSemaphoreTake(state_mutex_, portMAX_DELAY);
+    ClientState copy = this->client_state_;
+    xSemaphoreGive(state_mutex_);
+    return copy;
+  }
+
  protected:
   friend SnapcastClient;
-  void send_rpc_request_(const std::string &method, std::function<void(JsonObject)> fill_params, uint32_t id);
-  void update_from_server_obj_(const JsonObject &server_obj);
 
   std::string server_;
   uint32_t port_;
@@ -164,8 +187,22 @@ class SnapcastControlSession {
   std::string recv_buffer_;
   std::string line_buffer_;
   ClientState client_state_;
+  SemaphoreHandle_t state_mutex_{xSemaphoreCreateMutex()};
   std::map<std::string, StreamInfo> known_streams_;
   std::function<void(StreamStatus status, std::string stream_id)> on_stream_update_;
+
+  QueueHandle_t rpc_queue_{nullptr}; 
+  std::unordered_map<uint32_t, PendingCb> pending_;
+  std::atomic<uint32_t> next_id_{1};
+  void drain_rpc_queue_();
+  void expire_pending_();
+
+  void request_server_info_(std::function<void(const ClientState&)> cb = nullptr);
+  void set_group_stream_(const std::string &stream_id);
+  void isolate_client_(std::function<void(const ClientState&)> cb = nullptr);
+
+  void update_from_server_obj_(const JsonObject &server_obj);
+
 };
 
 }  // namespace snapcast

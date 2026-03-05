@@ -26,7 +26,7 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/component.h"
 
-#include "esphome/components/speaker/media_player/speaker_media_player.h"
+#include "esphome/components/media_player/media_player.h"
 
 #include "messages.h"
 #include "snapcast_stream.h"
@@ -61,7 +61,7 @@ class SnapcastClient : public Component {
   void loop() override;
 
   error_t connect_to_server(std::string url, uint32_t stream_port = 1704, uint32_t rpc_port = 1705);
-  void set_media_player(esphome::speaker::SpeakerMediaPlayer *media_player) { this->media_player_ = media_player; }
+  void set_media_player(media_player::MediaPlayer *media_player) { this->media_player_ = media_player; }
   void set_server_ip(std::string server_ip) { this->cfg_server_ip_ = server_ip; }
   SnapcastStream *get_stream() { return &this->stream_; }
 
@@ -104,7 +104,7 @@ class SnapcastClient : public Component {
   SnapcastUrl curr_server_url_;
   SnapcastStream stream_;
   SnapcastControlSession cntrl_session_;
-  esphome::speaker::SpeakerMediaPlayer *media_player_;
+  media_player::MediaPlayer *media_player_;
 };
 
 }  // namespace snapcast

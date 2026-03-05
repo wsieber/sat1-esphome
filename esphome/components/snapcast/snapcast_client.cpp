@@ -117,11 +117,11 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
   switch (stream_state) {
     case StreamState::ERROR:
       ESP_LOGE(TAG, "stream: %s", this->stream_.error_msg_.c_str());
-      this->stream_.disconnect();
-      this->cntrl_session_.disconnect();
-      this->server_.reset();
-      this->enable_loop();
-      this->state_ = SnapcastClientState::DISCONNECTING;
+      // this->stream_.disconnect();
+      // this->cntrl_session_.disconnect();
+      // this->server_.reset();
+      // this->enable_loop();
+      // this->state_ = SnapcastClientState::DISCONNECTING;
       break;
     case StreamState::RECONNECTING:
       ESP_LOGI(TAG, "Reconnecting after error: %s", this->stream_.error_msg_.c_str());
@@ -171,9 +171,10 @@ void SnapcastClient::on_stream_update_msg(StreamStatus status, std::string strea
     } else if (status == StreamStatus::IDLE) {
       this->play_requested_ = false;
       if (this->state_ == SnapcastClientState::PLAYING) {
-        this->media_player_->make_call()
-            .set_command(media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_STOP)
-            .perform();
+        // this->media_player_->make_call()
+        //     .set_command(media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_STOP)
+        //     .perform();
+        this->stream_.stop_streaming();
         ESP_LOGI(TAG, "Stopping stream: %s\n", stream_id.c_str());
       }
     }

@@ -73,11 +73,11 @@ void AudioPipeline::start_file(audio::AudioFile *audio_file) {
 }
 
 #if USE_SNAPCAST
-void AudioPipeline::start_snapcast(snapcast::SnapcastStream *stream) {
+void AudioPipeline::start_snapcast(snapcast::SnapcastClient *client) {
   if (this->is_playing_) {
     xEventGroupSetBits(this->event_group_, PIPELINE_COMMAND_STOP);
   }
-  this->snapcast_stream_ = stream;
+  this->snapcast_client_ = client;
   this->pending_snapcast_ = true;
 }
 #endif
@@ -389,7 +389,7 @@ void AudioPipeline::read_task(void *params) {
       }
 #if USE_SNAPCAST
       else if (event_bits & EventGroupBits::READER_COMMAND_INIT_SNAPCAST) {
-        err = reader->start(this_pipeline->snapcast_stream_, this_pipeline->current_audio_file_type_);
+        err = reader->start(this_pipeline->snapcast_client_, this_pipeline->current_audio_file_type_);
       }
 #endif
 

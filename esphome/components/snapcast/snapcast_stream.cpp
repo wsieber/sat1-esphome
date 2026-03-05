@@ -133,9 +133,17 @@ esp_err_t SnapcastStream::connect(std::string server, uint32_t port) {
 
 esp_err_t SnapcastStream::disconnect() {
   // close connection and stop all running tasks
-  if (this->stream_task_handle_) {
+  ESP_LOGI(TAG, "disconnect() prev state=%d", this->state_);
+  if (this->stream_task_handle_) {    
+    this->set_state_(StreamState::STOPPING);
     xTaskNotify(this->stream_task_handle_, STOP_BIT, eSetBits);
+    auto st = eTaskGetState(this->stream_task_handle_);
+    ESP_LOGI(TAG, "stream task state=%d", (int)st);
+    ESP_LOGI(TAG, "transport stack watermark=%u",
+      uxTaskGetStackHighWaterMark(this->stream_task_handle_));
+                    
   } else {
+    ESP_LOGI(TAG, "stream_task_handle is null");
     this->set_state_(StreamState::DESTROYED);
   }
   return ESP_OK;
@@ -431,7 +439,27 @@ static void transport_task_(const std::string &server, uint32_t port, std::share
       if (xQueueReceive(outgoing_queue, &msg, 0) == pdPASS) {
         msg->set_send_time();
         msg->toBytes(tx_buffer);
-        int bytes_written = send(sock, (char *) tx_buffer, msg->getMessageSize(), 0);
+        const size_t want = msg->getMessageSize();
+        int bytes_written = send(sock, (char *) tx_buffer, want, 0);
+        if (bytes_written < 0) {
+          int e = errno;
+          ESP_LOGE("transport", "send() failed: errno=%d (%s)", e, strerror(e));
+          if (msg->getMessageType() == message_type::kHello){
+            // todo resend hello
+          }
+          delete msg;
+          if (e == EAGAIN || e == EWOULDBLOCK) {
+            // couldn't send right now;         
+            goto connection_done;
+          }
+          goto connection_done;  // fatal send error
+        }
+        if ((size_t)bytes_written != want) {
+          ESP_LOGE("transport", "partial send: %d/%u -> reconnect", bytes_written, (unsigned)want);
+          delete msg;
+          goto connection_done;
+        }         
+        
         if (bytes_written > 0 && msg->getMessageType() == message_type::kTime) {
           time_stats->set_request_time(msg->id(), msg->send_time());
         }
@@ -704,10 +732,26 @@ void SnapcastStream::stream_task_() {
   };
 
   constexpr TickType_t STREAMING_WAIT = pdMS_TO_TICKS(5);
-  constexpr TickType_t IDLE_WAIT = pdMS_TO_TICKS(100);
+  constexpr TickType_t IDLE_WAIT = pdMS_TO_TICKS(10);
   uint32_t notify_value;
   this->set_state_(StreamState::DISCONNECTED);
   while (true) {
+    static uint32_t last_log = 0;
+    
+    if (millis() - last_log > 10000) {
+      ESP_LOGI(TAG, "state=%d destroy=%d desired_conn=%d",
+              this->state_, destroy_requested, desired_connected);
+      ESP_LOGI(TAG, "stream stack watermark=%u",
+         uxTaskGetStackHighWaterMark(NULL));
+      if(transport_task_handle){
+        auto st = eTaskGetState(transport_task_handle);
+        ESP_LOGI(TAG, "transport task state=%d", (int)st);
+        ESP_LOGI(TAG, "transport stack watermark=%u",
+         uxTaskGetStackHighWaterMark(transport_task_handle));
+      }              
+      last_log = millis();
+    }
+    
     TickType_t wait_time = (this->state_ == StreamState::STREAMING) ? STREAMING_WAIT : IDLE_WAIT;
     if (xTaskNotifyWait(0, 0xFFFFFFFF, &notify_value, wait_time)) {
       if (notify_value & CONNECT_BIT) {
@@ -765,7 +809,7 @@ void SnapcastStream::stream_task_() {
         this->set_state_(StreamState::DISCONNECTED);
         this->codec_header_sent_ = false;
         if (destroy_requested || !desired_connected) {
-          // no reconnect
+          request_destroy();
         } else {
           uint32_t now = millis();
           // start retry window if first failure
@@ -792,6 +836,8 @@ void SnapcastStream::stream_task_() {
       if (this->read_and_process_messages_(stream_package_buffer.get(), timeout) == ESP_FAIL) {
         this->set_state_(StreamState::RECONNECTING);
         xTaskNotify(transport_task_handle, DISCONNECT_BIT, eSetBits);
+        ESP_LOGW(TAG, "read_and_process_messages failed, curr_state: %d\n", this->state_ );
+        ESP_LOGW(TAG, "msg: %s\n", this->error_msg_.c_str());
       }
     }
   }

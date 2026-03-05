@@ -199,15 +199,15 @@ esp_err_t AudioReader::start(const std::string &uri, AudioFileType &file_type) {
   return ESP_OK;
 }
 #if USE_SNAPCAST
-esp_err_t AudioReader::start(snapcast::SnapcastStream *stream, AudioFileType &file_type) {
+esp_err_t AudioReader::start(snapcast::SnapcastClient *client, AudioFileType &file_type) {
   if (this->snapcast_stream_ != nullptr) {
     return ESP_FAIL;
   }
-  if (stream == nullptr) {
+  if (client == nullptr) {
     return ESP_FAIL;
   }
-
-  this->snapcast_stream_ = stream;
+  this->snapcast_client_ = client;
+  this->snapcast_stream_ = client->get_stream();
   this->audio_file_type_ = AudioFileType::FLAC;
   file_type = AudioFileType::FLAC;
   this->snapcast_stream_->start_with_notify(this->output_ring_buffer_, xTaskGetCurrentTaskHandle());

@@ -392,7 +392,7 @@ void SpeakerMediaPlayer::loop() {
 #if USE_SNAPCAST
           if (this->snapcast_client_ && this->snapcast_client_->is_snapcast_url(next_item.value().url.value())) {
             this->snapcast_client_->connect_to_url(next_item.value().url.value());
-            this->media_pipeline_->start_snapcast(this->snapcast_client_->get_stream());
+            this->media_pipeline_->start_snapcast(this->snapcast_client_);
           } else
 #endif
           {
