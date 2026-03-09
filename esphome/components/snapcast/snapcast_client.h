@@ -43,10 +43,10 @@ struct SnapcastServer {
 };
 
 enum class SnapcastClientState {
+  UNINITIALIZED,
   DISCONNECTED,
   CONNECTING,
-  IDLE,
-  PLAYING,
+  CONNECTED,
   DISCONNECTING,
 };
 
@@ -76,18 +76,31 @@ class SnapcastClient : public Component {
   };
   void disable() {
     this->enabled_ = false;
-    this->stream_.disconnect();
-    this->cntrl_session_.disconnect();
+    this->disable_requested_ = true;
+    this->stream_.terminate();
+    this->cntrl_session_.disconnect();    
   };
   error_t connect_to_url(std::string url) { return ESP_OK; }
   bool is_snapcast_url(std::string url) { return url.starts_with("snapcast://"); }
 
+  void stop_streaming();
+
  protected:
   bool enabled_{true};
+  bool disable_requested_{false};
   bool network_initialized_{false};
-  void on_network_ready_();
-  SnapcastClientState state_{SnapcastClientState::DISCONNECTED};
   bool play_requested_{false};
+  bool stop_playing_requested_{false};
+
+  uint32_t next_stream_init_at_{0};
+  uint32_t stream_init_counter_{0};
+  uint32_t next_connecting_at_{0};
+  uint32_t connection_timeout_at_{0};
+
+  
+  void on_network_ready_();
+  SnapcastClientState state_{SnapcastClientState::UNINITIALIZED};
+  
 
   error_t start_mdns_scan_();
   error_t mdns_task_();

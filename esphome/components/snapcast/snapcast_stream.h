@@ -38,25 +38,30 @@ using namespace audio;
 namespace snapcast {
 
 enum class StreamState {
-  DESTROYED,     // stream_task and transport_task not running
+  DESTROYED,  // stream_task and transport_task not running
+  STARTING,
   DISCONNECTED,  // stream_task is running, not connected yet
   CONNECTING,
-  RECONNECTING,    // Requested to reconnect
   CONNECTED_IDLE,  // Connected but waiting
   STREAMING,       // Receiving data
+  RECONNECTING,
+  STOPPING,        // Requested shutdown
   ERROR,           // Fatal or recoverable error
-  STOPPING         // Requested shutdown
 };
 
 class SnapcastClient;
 
 class SnapcastStream {
  public:
+  esp_err_t init();
+  esp_err_t terminate();
+  bool finalize_termination();
+
   /// @brief Establish a connection to the Snapcast server.
   /// @param server The hostname or IP address of the Snapcast server.
   /// @param port The TCP port to connect to on the server.
   /// @return `ESP_OK` on success, or an appropriate error code.
-  esp_err_t connect(std::string server, uint32_t port);
+  esp_err_t connect(const std::string& server, uint32_t port);
 
   /// @brief Disconnect from the Snapcast server.
   /// @return `ESP_OK` on success, or an appropriate error code.
@@ -67,7 +72,8 @@ class SnapcastStream {
   /// @param notification_task A FreeRTOS task to be notified on status changes.
   /// @return `ESP_OK` on success, or an appropriate error code.
   esp_err_t start_with_notify(std::weak_ptr<esphome::TimedRingBuffer> ring_buffer, TaskHandle_t notification_task);
-
+  void clear_notification_target() { this->notification_target_ = nullptr; }
+  
   /// @brief Stop the audio/data stream and return to an idle state.
   /// @return `ESP_OK` on success, or an appropriate error code.
   esp_err_t stop_streaming();
@@ -78,17 +84,16 @@ class SnapcastStream {
   /// @return `ESP_OK` on success, or an appropriate error code.
   esp_err_t report_volume(uint8_t volume, bool muted);
 
-  /// @brief Check if the stream is connected (either idle or actively streaming).
-  /// @return `true` if connected, `false` otherwise.
   bool is_connected() const {
-    return this->state_ == StreamState::STREAMING || this->state_ == StreamState::CONNECTED_IDLE;
+    return this->state_ == StreamState::CONNECTED_IDLE || this->state_ == StreamState::STREAMING;
   }
-
-  /// @brief Check if the stream is actively receiving data.
-  /// @return `true` if streaming is in progress, `false` otherwise.
-  bool is_running() const { return this->state_ == StreamState::STREAMING; }
-
   bool is_destroyed() const { return this->state_ == StreamState::DESTROYED; }
+  bool is_terminating() const { return this->stream_task_exiting_; }
+
+  bool server_is_lost() const { return this->state_ == StreamState::DISCONNECTED && !this->want_connected_; }
+
+  bool error_enforces_termination() const { return this->state_ == StreamState::ERROR && this->stream_task_exiting_; }
+  bool is_streaming() const { return this->state_ == StreamState::STREAMING; }
 
   /// @brief Set a callback to be invoked on stream status updates.
   /// @param cb A function receiving state, volume, and mute information.
@@ -96,13 +101,16 @@ class SnapcastStream {
     this->on_status_update_ = std::move(cb);
   }
 
+  void get_target_snapshot_(std::string &server, uint32_t &port);
+
  protected:
   friend SnapcastClient;
   void on_server_settings_msg_(const ServerSettingsMessage &msg);
   void on_time_msg_(MessageHeader msg, tv_t time);
 
+  SemaphoreHandle_t config_mutex_{nullptr};
   std::string server_;
-  uint32_t port_;
+  uint32_t port_{0};
   uint32_t server_buffer_size_{0};
   int32_t latency_{0};
   std::atomic<uint8_t> volume_{0};
@@ -110,6 +118,7 @@ class SnapcastStream {
 
   StreamState state_{StreamState::DESTROYED};
   std::string error_msg_;
+  bool want_connected_{false};
 
   tv_t to_local_time_(tv_t server_time) const {
     return server_time - this->est_time_diff_.load(std::memory_order_relaxed) +
@@ -125,9 +134,15 @@ class SnapcastStream {
   std::function<void(StreamState state, uint8_t volume, bool muted)> on_status_update_;
 
  private:
-  TaskHandle_t stream_task_handle_{nullptr};
-  StaticTask_t task_stack_;
   StackType_t *task_stack_buffer_{nullptr};
+
+  TaskHandle_t stream_task_handle_{nullptr};
+  std::atomic<bool> stream_task_exiting_{false};
+  StaticTask_t task_stack_;
+
+  TaskHandle_t transport_task_handle_{nullptr};
+  std::atomic<bool> transport_task_exiting_{false};
+
   QueueHandle_t outgoing_queue_{nullptr};
 
   void stream_task_();

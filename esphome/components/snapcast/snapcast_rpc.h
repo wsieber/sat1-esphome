@@ -49,6 +49,7 @@ static inline StreamStatus parse_status(const char* s) {
 struct StreamInfo {
   std::string id;
   StreamStatus status{StreamStatus::UNKNOWN};
+  bool canControl{false};
   bool canPlay{false};
   bool canPause{false};
   bool canSeek{false};
@@ -68,6 +69,7 @@ struct StreamInfo {
     id = sid;
     
     status = parse_status(stream_obj["status"].as<const char*>());
+    canControl = stream_obj["canControl"] | false;
     canPlay = stream_obj["canPlay"] | false;
     canPause = stream_obj["canPause"] | false;
     canSeek = stream_obj["canSeek"] | false;
@@ -96,12 +98,13 @@ struct StreamInfo {
 
 struct ClientState {
   std::string group_id;
+  StreamInfo sInfo;
   std::string stream_id;
+  std::string default_streamid{"default"};
   std::vector<std::string> group_members;
   int32_t latency = 0;
   uint8_t volume_percent = 100;
   bool muted = false;
-
 
   bool from_groups_json(JsonArray groups, std::string &client_id) {
     this->group_members.clear();
@@ -151,8 +154,9 @@ class SnapcastClient;
 
 class SnapcastControlSession {
  public:
-  esp_err_t connect(std::string server, uint32_t port);
+  esp_err_t connect(const std::string& server, uint32_t port);
   esp_err_t disconnect();
+  bool is_connected() const { return this->connected_; }
 
   void notification_loop();
 
@@ -160,7 +164,7 @@ class SnapcastControlSession {
     this->on_stream_update_ = std::move(cb);
   }
 
-  void request_stopping();
+  void request_stop();
   bool send_rpc_async(
     const std::string &method,
     std::function<void(JsonObject)> fill_params,
@@ -168,7 +172,7 @@ class SnapcastControlSession {
     uint32_t timeout_ms
   );
 
-  ClientState snapshot() {
+  ClientState state_snapshot() {
     xSemaphoreTake(state_mutex_, portMAX_DELAY);
     ClientState copy = this->client_state_;
     xSemaphoreGive(state_mutex_);
@@ -178,15 +182,23 @@ class SnapcastControlSession {
  protected:
   friend SnapcastClient;
 
+  SemaphoreHandle_t config_mutex_{nullptr};
   std::string server_;
   uint32_t port_;
   std::string client_id_;
+  bool connected_{false};
+  
+  TaskHandle_t task_handle_{nullptr};
+  StackType_t *task_stack_buffer_{nullptr};
+  StaticTask_t task_stack_;
+  bool task_exiting_{false};
+  bool task_should_run_{false};
+
   esp_transport_handle_t transport_{nullptr};
-  bool notification_task_should_run_{false};
-  TaskHandle_t notification_task_handle_{nullptr};
   std::string recv_buffer_;
   std::string line_buffer_;
   ClientState client_state_;
+  
   SemaphoreHandle_t state_mutex_{xSemaphoreCreateMutex()};
   std::map<std::string, StreamInfo> known_streams_;
   std::function<void(StreamStatus status, std::string stream_id)> on_stream_update_;
@@ -194,12 +206,14 @@ class SnapcastControlSession {
   QueueHandle_t rpc_queue_{nullptr}; 
   std::unordered_map<uint32_t, PendingCb> pending_;
   std::atomic<uint32_t> next_id_{1};
+  
   void drain_rpc_queue_();
   void expire_pending_();
 
   void request_server_info_(std::function<void(const ClientState&)> cb = nullptr);
   void set_group_stream_(const std::string &stream_id);
   void isolate_client_(std::function<void(const ClientState&)> cb = nullptr);
+  void group_request_stop(const ClientState &state);
 
   void update_from_server_obj_(const JsonObject &server_obj);
 
