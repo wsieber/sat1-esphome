@@ -78,7 +78,7 @@ class SnapcastClient : public Component {
     this->enabled_ = false;
     this->disable_requested_ = true;
     this->stream_.terminate();
-    this->cntrl_session_.disconnect();    
+    this->cntrl_session_.disconnect();
   };
   error_t connect_to_url(std::string url) { return ESP_OK; }
   bool is_snapcast_url(std::string url) { return url.starts_with("snapcast://"); }
@@ -97,10 +97,8 @@ class SnapcastClient : public Component {
   uint32_t next_connecting_at_{0};
   uint32_t connection_timeout_at_{0};
 
-  
   void on_network_ready_();
   SnapcastClientState state_{SnapcastClientState::UNINITIALIZED};
-  
 
   error_t start_mdns_scan_();
   error_t mdns_task_();

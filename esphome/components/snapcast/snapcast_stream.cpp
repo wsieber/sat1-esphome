@@ -148,14 +148,10 @@ esp_err_t SnapcastStream::terminate() {
   this->want_connected_ = false;
 
   // close connection and stop all running tasks
-  ESP_LOGI(TAG, "terminate() prev state=%d", this->state_);
   if (this->stream_task_handle_) {
     this->stream_task_exiting_ = true;
     this->set_state_(StreamState::STOPPING);
     xTaskNotify(this->stream_task_handle_, STOP_BIT, eSetBits);
-    auto st = eTaskGetState(this->stream_task_handle_);
-    ESP_LOGI(TAG, "stream task state=%d", (int) st);
-    ESP_LOGI(TAG, "stream stack watermark=%u", uxTaskGetStackHighWaterMark(this->stream_task_handle_));
   }
   return ESP_OK;
 }
@@ -318,12 +314,7 @@ static void transport_task_(SnapcastStream *self, std::shared_ptr<ChunkedRingBuf
     int one = 1;
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
-    // #ifdef TCP_KEEPIDLE
-    //     int idle = 30, intvl = 5, cnt = 3;
-    //     setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
-    //     setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
-    //     setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
-    // #endif
+
     int flags = lwip_fcntl(sock, F_GETFL, 0);
     lwip_fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
@@ -835,7 +826,7 @@ void SnapcastStream::stream_task_() {
   uint32_t notify_value;
   this->set_state_(StreamState::DISCONNECTED);
   while (true) {
-#if SNAPCAST_DEBUG    
+#if SNAPCAST_DEBUG
     static uint32_t last_log = 0;
     if (millis() - last_log > 10000) {
       ESP_LOGI(TAG, "state=%d destroy=%d desired_conn=%d", this->state_, destroy_requested, this->want_connected_);
@@ -863,7 +854,7 @@ void SnapcastStream::stream_task_() {
     //   return;
     // }
 #endif
-    
+
     TickType_t wait_time = (this->state_ == StreamState::STREAMING) ? STREAMING_WAIT : IDLE_WAIT;
     if (xTaskNotifyWait(0, 0xFFFFFFFF, &notify_value, wait_time)) {
       ESP_LOGI(TAG, "stream notify=0x%08" PRIx32, notify_value);

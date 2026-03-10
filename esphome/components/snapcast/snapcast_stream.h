@@ -45,8 +45,8 @@ enum class StreamState {
   CONNECTED_IDLE,  // Connected but waiting
   STREAMING,       // Receiving data
   RECONNECTING,
-  STOPPING,        // Requested shutdown
-  ERROR,           // Fatal or recoverable error
+  STOPPING,  // Requested shutdown
+  ERROR,     // Fatal or recoverable error
 };
 
 class SnapcastClient;
@@ -61,7 +61,7 @@ class SnapcastStream {
   /// @param server The hostname or IP address of the Snapcast server.
   /// @param port The TCP port to connect to on the server.
   /// @return `ESP_OK` on success, or an appropriate error code.
-  esp_err_t connect(const std::string& server, uint32_t port);
+  esp_err_t connect(const std::string &server, uint32_t port);
 
   /// @brief Disconnect from the Snapcast server.
   /// @return `ESP_OK` on success, or an appropriate error code.
@@ -73,7 +73,7 @@ class SnapcastStream {
   /// @return `ESP_OK` on success, or an appropriate error code.
   esp_err_t start_with_notify(std::weak_ptr<esphome::TimedRingBuffer> ring_buffer, TaskHandle_t notification_task);
   void clear_notification_target() { this->notification_target_ = nullptr; }
-  
+
   /// @brief Stop the audio/data stream and return to an idle state.
   /// @return `ESP_OK` on success, or an appropriate error code.
   esp_err_t stop_streaming();

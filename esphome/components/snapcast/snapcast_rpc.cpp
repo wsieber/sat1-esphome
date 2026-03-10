@@ -26,8 +26,6 @@
 namespace esphome {
 namespace snapcast {
 
-
-
 static const char *const TAG = "snapcast_rpc";
 
 static const size_t TASK_STACK_SIZE = 4 * 1024;
@@ -38,126 +36,8 @@ enum RPCTaskBits : uint32_t {
   RECONNECT_BIT = (1 << 1),
 };
 
-#if 0
-esp_err_t SnapcastControlSession::init() {
-  if (this->task_handle_ != nullptr) {
-    if (!this->task_is_exiting_) {
-      // task already running
-      return ESP_OK;
-    }
-    if (!this->finalize_termination()) {
-      ESP_LOGW(TAG, "Exiting task still in progress");
-      return ESP_ERR_INVALID_STATE;
-    }
-  }
-
-  if (this->task_stack_buffer_ == nullptr) {
-    RAMAllocator<StackType_t> stack_allocator(RAMAllocator<StackType_t>::ALLOC_INTERNAL);
-    this->task_stack_buffer_ = stack_allocator.allocate(TASK_STACK_SIZE);
-    if (this->task_stack_buffer_ == nullptr) {
-      this->set_state_(StreamState::ERROR);
-      return ESP_ERR_NO_MEM;
-    }
-  }
-
-  if (!this->config_mutex_) {
-    this->config_mutex_ = xSemaphoreCreateMutex();
-    if (!this->config_mutex_)
-      return ESP_FAIL;
-  }
-  
-  if (!this->rpc_queue_) {
-    this->rpc_queue_ = xQueueCreate(4, sizeof(RpcRequest *));
-  }
-
-  this->task_handle_ = xTaskCreateStatic(
-      [](void *param) {
-        auto *session = static_cast<SnapcastControlSession *>(param);
-        session->notification_loop();
-      },
-      "snap_rpc_task", TASK_STACK_SIZE, (void *) this, STREAM_TASK_PRIORITY, this->task_stack_buffer_,
-      &this->task_stack_);
-  
-  if (this->task_handle_ == nullptr) {
-    return ESP_FAIL;
-  }
-
-  this->task_exiting_ = false;
-  return ESP_OK;
-}
-
-esp_err_t SnapcastControlSession::terminate() {
-  this->want_connected_ = false;
-
-  // close connection and stop all running tasks
-  ESP_LOGI(TAG, "terminate() prev state=%d", this->state_);
-  if (this->task_handle_) {
-    this->task_exiting_ = true;
-    xTaskNotify(this->task_handle_, STOP_BIT, eSetBits);
-  }
-  return ESP_OK;
-}
-
-bool SnapcastControlSession::finalize_termination() {
-  if (this->task_handle_ == nullptr) {
-    return true;
-  }
-  auto st = eTaskGetState(this->task_handle_);
-  if (st != eDeleted && st != eInvalid) {
-    // task hasn't terminated yet
-    return false;
-  }
-
-  // TODO: also free stack memory
-
-  // TODO: free queue
-
-  this->task_handle_ = nullptr;
-  this->task_exiting_ = false;
-  return true;
-}
-
-
-
-esp_err_t SnapcastControlSession::disconnect() {
-  if (!this->stream_task_handle_ || this->stream_task_exiting_) {
-    return ESP_ERR_INVALID_STATE;
-  }
-  xTaskNotify(this->stream_task_handle_, DISCONNECT_BIT, eSetBits);
-  return ESP_OK;
-}
-
-esp_err_t SnapcastControlSession::connect(std::string server, uint32_t port) {
-  this->server_ = server;
-  this->port_ = port;
-
-  if (!rpc_queue_) {
-    rpc_queue_ = xQueueCreate(4, sizeof(RpcRequest *));
-  }
-
-  // Start the notification handling task
-  this->notification_task_should_run_ = true;
-  if (this->notification_task_handle_ == nullptr) {
-    xTaskCreate(
-        [](void *param) {
-          auto *session = static_cast<SnapcastControlSession *>(param);
-          session->notification_loop();
-          session->notification_task_handle_ = nullptr;
-          vTaskDelete(nullptr);
-        },
-        "snapcast_notify", 4096, this, 5, &this->notification_task_handle_);
-  } else {
-    xTaskNotify(this->notification_task_handle_, RECONNECT_BIT, eSetBits);
-  }
-  return ESP_OK;
-}
-
-
-
-#endif
-
 esp_err_t SnapcastControlSession::connect(const std::string &server, uint32_t port) {
-  if (this->task_exiting_ && this->task_handle_){
+  if (this->task_exiting_ && this->task_handle_) {
     auto st = eTaskGetState(this->task_handle_);
     if (st != eDeleted && st != eInvalid) {
       // task hasn't terminated yet
@@ -167,7 +47,7 @@ esp_err_t SnapcastControlSession::connect(const std::string &server, uint32_t po
       this->task_exiting_ = false;
     }
   }
-  
+
   if (!this->config_mutex_) {
     this->config_mutex_ = xSemaphoreCreateMutex();
     if (!this->config_mutex_)
@@ -185,39 +65,38 @@ esp_err_t SnapcastControlSession::connect(const std::string &server, uint32_t po
     this->task_should_run_ = true;
     xSemaphoreGive(this->config_mutex_);
   }
-  
+
   if (!this->rpc_queue_) {
     this->rpc_queue_ = xQueueCreate(4, sizeof(RpcRequest *));
   }
 
   if (this->task_stack_buffer_ == nullptr) {
-    RAMAllocator<StackType_t> stack_allocator(RAMAllocator<StackType_t>::ALLOC_INTERNAL);
+    RAMAllocator<StackType_t> stack_allocator;
     this->task_stack_buffer_ = stack_allocator.allocate(TASK_STACK_SIZE);
     if (this->task_stack_buffer_ == nullptr) {
       return ESP_ERR_NO_MEM;
     }
   }
 
-  if( !this->task_handle_){
+  if (!this->task_handle_) {
     this->task_handle_ = xTaskCreateStatic(
-      [](void *param) {
-        auto *session = static_cast<SnapcastControlSession *>(param);
-        session->notification_loop();
-      },
-      "snap_rpc_task", TASK_STACK_SIZE, (void *) this, RPC_TASK_PRIORITY, this->task_stack_buffer_,
-      &this->task_stack_);
-  
+        [](void *param) {
+          auto *session = static_cast<SnapcastControlSession *>(param);
+          session->notification_loop();
+          vTaskDelete(nullptr);
+        },
+        "snap_rpc_task", TASK_STACK_SIZE, (void *) this, RPC_TASK_PRIORITY, this->task_stack_buffer_,
+        &this->task_stack_);
+
     if (this->task_handle_ == nullptr) {
       return ESP_FAIL;
     }
-  } else if( server_has_changed){
+  } else if (server_has_changed) {
     xTaskNotify(this->task_handle_, RECONNECT_BIT, eSetBits);
   }
-  
+
   return ESP_OK;
 }
-
-
 
 esp_err_t SnapcastControlSession::disconnect() {
   this->task_should_run_ = false;
@@ -270,11 +149,11 @@ void SnapcastControlSession::drain_rpc_queue_() {
     size_t n = serializeJson(doc, buf, sizeof(buf));
     if (n + 1 < sizeof(buf))
       buf[n++] = '\n';
-    
+
     esp_transport_write(transport_, buf, n, 1000);
     // buf[n] = '\0';
-    // printf( "sent: %s", buf );
-    
+    // printf("sent: %s", buf);
+
     // Register callback
     if (req->on_response) {
       pending_[req->id] = PendingCb{
@@ -308,7 +187,7 @@ void SnapcastControlSession::update_from_server_obj_(const JsonObject &server_ob
   }
   bool found = new_state.from_groups_json(server_obj["groups"], this->client_id_);
 
-#if  SNAPCAST_DEBUG
+#if SNAPCAST_DEBUG
   if (found) {
     printf("group_id: %s stream_id: %s\n", new_state.group_id.c_str(), new_state.stream_id.c_str());
     printf("Group members (%zu):\n", new_state.group_members.size());
@@ -318,20 +197,23 @@ void SnapcastControlSession::update_from_server_obj_(const JsonObject &server_ob
   }
 #endif
 
-  ClientState &state = new_state;
-  const char *curr_stream = state.stream_id.c_str();
-  StreamInfo *curr_sInfo = nullptr;
   JsonArray streams = server_obj["streams"];
-  known_streams_.clear();
+  auto &streams_map = new_state.known_streams;
+  streams_map.clear();
   for (JsonObject stream_obj : streams) {
     const char *stream_id = stream_obj["id"].as<const char *>();
     if (!stream_id)
       continue;
-    StreamInfo &sInfo = this->known_streams_[stream_id];
+    StreamInfo &sInfo = streams_map[stream_id];
     sInfo.from_json(stream_obj);
-    if (strcmp(curr_stream, stream_id) == 0) {
-      curr_sInfo = &sInfo;
-    }
+  }
+
+  StreamStatus status = StreamStatus::UNKNOWN;
+  std::string stream_id;
+  auto it = streams_map.find(new_state.stream_id);
+  if (it != streams_map.end()) {
+    status = it->second.status;
+    stream_id = it->second.id;
   }
 
   {
@@ -340,12 +222,12 @@ void SnapcastControlSession::update_from_server_obj_(const JsonObject &server_ob
     xSemaphoreGive(state_mutex_);
   }
 
-  if (!curr_sInfo || !this->on_stream_update_) {
+  if (!this->on_stream_update_) {
     return;
   }
-  StreamInfo &sInfo = *curr_sInfo;
-  if (sInfo.status != StreamStatus::UNKNOWN) {
-    this->on_stream_update_(sInfo.status, sInfo.id);
+
+  if (status != StreamStatus::UNKNOWN) {
+    this->on_stream_update_(status, stream_id);
   }
 }
 
@@ -381,7 +263,12 @@ void SnapcastControlSession::notification_loop() {
     this->connected_ = true;
     this->request_server_info_();
 
-    this->known_streams_.clear();
+    {
+      xSemaphoreTake(state_mutex_, portMAX_DELAY);
+      this->client_state_.clear();
+      xSemaphoreGive(state_mutex_);
+    }
+
     this->recv_buffer_.clear();
     this->line_buffer_.clear();
     bool skipping_oversize_ = false;
@@ -465,51 +352,65 @@ void SnapcastControlSession::notification_loop() {
                   return false;
                 if (strcmp(method, "Server.OnUpdate") == 0) {
                   this->update_from_server_obj_(root["params"]["server"].as<JsonObject>());
-#if 0  // leave processing of stream properties for later              
-                } else if (strcmp(method, "Stream.OnProperties") == 0) {
-                  JsonObject params = root["params"];
-                  const char *stream_id = params["id"].as<const char *>();
-                  if (!stream_id)
-                    return false;
-                  if (strcmp(stream_id, this->client_state_.stream_id.c_str()) == 0) {
-                    StreamInfo &sInfo = this->known_streams_[this->client_state_.stream_id];
-                    sInfo.from_stream_properties(params["properties"]);
-                    if (this->on_stream_update_ && sInfo.status != StreamStatus::UNKNOWN) {
-                      this->on_stream_update_(sInfo.status, sInfo.id);
-                    }
-                  }
-#endif
                 } else if (strcmp(method, "Group.OnStreamChanged") == 0) {
                   JsonObject params = root["params"];
                   const char *group_id = params["id"].as<const char *>();
                   if (!group_id)
                     return false;
-                  if (strcmp(group_id, this->client_state_.group_id.c_str()) == 0) {
-                    const char *stream_id = params["stream_id"].as<const char *>();
-                    if (!stream_id)
-                      return false;
-                    if (strcmp(stream_id, this->client_state_.stream_id.c_str()) != 0) {
-                      this->client_state_.stream_id = stream_id;
-                      StreamInfo &sInfo = this->known_streams_[this->client_state_.stream_id];
-                      if (sInfo.id.empty()) {
-                        sInfo.set_id(this->client_state_.stream_id);
-                        request_server_info_();
-                      } else if (this->on_stream_update_ && sInfo.status != StreamStatus::UNKNOWN) {
-                        this->on_stream_update_(sInfo.status, sInfo.id);
+                  const char *stream_id = params["stream_id"].as<const char *>();
+                  if (!stream_id)
+                    return false;
+
+                  StreamStatus status = StreamStatus::UNKNOWN;
+                  bool new_stream_unknown = false;
+                  {
+                    xSemaphoreTake(state_mutex_, portMAX_DELAY);
+                    if (strcmp(group_id, this->client_state_.group_id.c_str()) == 0 &&
+                        strcmp(stream_id, this->client_state_.stream_id.c_str()) != 0) {
+                      auto &streams_map = this->client_state_.known_streams;
+                      auto it = streams_map.find(stream_id);
+                      if (it != streams_map.end()) {
+                        this->client_state_.stream_id = stream_id;
+                        status = it->second.status;
+                      } else {
+                        new_stream_unknown = true;
                       }
                     }
+                    xSemaphoreGive(state_mutex_);
                   }
+                  if (new_stream_unknown) {
+                    request_server_info_();
+                  } else if (this->on_stream_update_ && status != StreamStatus::UNKNOWN) {
+                    this->on_stream_update_(status, stream_id);
+                  }
+
                 } else if (strcmp(method, "Stream.OnUpdate") == 0) {
                   JsonObject params = root["params"];
                   const char *stream_id = params["id"].as<const char *>();
                   if (!stream_id)
                     return false;
-                  if (strcmp(stream_id, this->client_state_.stream_id.c_str()) == 0) {
-                    StreamInfo &sInfo = this->known_streams_[stream_id];
-                    sInfo.from_json(params["stream"]);
-                    if (this->on_stream_update_ && sInfo.status != StreamStatus::UNKNOWN) {
-                      this->on_stream_update_(sInfo.status, sInfo.id);
+
+                  StreamInfo sInfo;
+                  sInfo.from_json(params["stream"]);
+                  StreamStatus status = sInfo.status;
+
+                  bool notify = false;
+                  {
+                    xSemaphoreTake(state_mutex_, portMAX_DELAY);
+
+                    auto &streams_map = this->client_state_.known_streams;
+                    streams_map.insert_or_assign(stream_id, std::move(sInfo));
+
+                    if (strcmp(stream_id, this->client_state_.stream_id.c_str()) == 0 &&
+                        status != StreamStatus::UNKNOWN) {
+                      notify = true;
                     }
+
+                    xSemaphoreGive(state_mutex_);
+                  }
+
+                  if (notify && this->on_stream_update_) {
+                    this->on_stream_update_(status, stream_id);
                   }
                 }
               }
@@ -549,11 +450,10 @@ void SnapcastControlSession::request_server_info_(std::function<void(const Clien
 }
 
 void SnapcastControlSession::set_group_stream_(const std::string &stream_id) {
-  ClientState snap = this->state_snapshot();
-  auto gid = std::move(snap.group_id);
+  std::string gid = this->grp_id_snapshot();
   this->send_rpc_async(
       "Group.SetStream",
-      [gid, sid = std::string(stream_id)](JsonObject params) {
+      [gid = std::move(gid), sid = stream_id](JsonObject params) {
         params["id"] = gid;
         params["stream_id"] = sid;
       },
@@ -561,31 +461,33 @@ void SnapcastControlSession::set_group_stream_(const std::string &stream_id) {
 }
 
 void SnapcastControlSession::group_request_stop(const ClientState &state) {
-  if (state.sInfo.canControl) {
+  auto it = state.known_streams.find(state.stream_id);
+  if (it == state.known_streams.end()) {
+    return;
+  }
+  const StreamInfo &sInfo = it->second;
+  if (sInfo.canControl) {
+    std::string stream_id = state.stream_id;
     this->send_rpc_async(
         "Stream.Control",
-        [state](JsonObject params) {
-          params["id"] = state.sInfo.id;
+        [sId = std::move(stream_id)](JsonObject params) {
+          params["id"] = sId;
           params["command"] = "stop";
           JsonArray cmd_params = params["clients"].to<JsonArray>();
         },
-        {}, 
-        2000
-    );
+        {}, 2000);
     return;
   }
   // stream doesn't support direct control, set to default stream instead.
-  const char *stream_id = state.default_streamid.c_str();
+  std::string grp_id = state.group_id;
+  std::string default_stream = state.default_streamid;
   this->send_rpc_async(
       "Group.SetStream",
-      [state](JsonObject params) {
-        params["id"] = state.group_id;
-        params["stream_id"] = state.default_streamid;
+      [gid = std::move(grp_id), sid = std::move(default_stream)](JsonObject params) {
+        params["id"] = gid;
+        params["stream_id"] = sid;
       },
-      [this](JsonObject root) mutable {          
-        this->request_server_info_({});
-      },
-      2000);
+      [this](JsonObject root) mutable { this->request_server_info_({}); }, 2000);
 }
 
 void SnapcastControlSession::isolate_client_(std::function<void(const ClientState &state)> cb) {
