@@ -326,7 +326,7 @@ class ClientInfoMessage : public JsonMessage {
   }
   void construct_json_(JsonObject root) const override {
     root["volume"] = this->volume_;
-    root["muted"] = this->muted_ ? "true" : "false";
+    root["muted"] = this->muted_;
   }
 
  protected:

@@ -17,7 +17,7 @@
 namespace esphome {
 #if USE_SNAPCAST
 namespace snapcast {
-class SnapcastStream;
+class SnapcastClient;
 }
 #endif
 namespace speaker {
@@ -83,9 +83,9 @@ class AudioPipeline {
 
 #if USE_SNAPCAST
   /// @brief Starts an audio pipeline given a pointer to a snapcast stream
-  /// @param stream Pointer to a snapcast stream
+  /// @param client Pointer to the snapcast client
   /// @return ESP_OK if successful or an appropriate error if not
-  void start_snapcast(snapcast::SnapcastStream *stream);
+  void start_snapcast(snapcast::SnapcastClient *client);
 #endif
 
   /// @brief Stops the pipeline. Sends a stop signal to each task (if running) and clears the ring buffers.
@@ -139,7 +139,7 @@ class AudioPipeline {
   std::string current_uri_{};
   audio::AudioFile *current_audio_file_{nullptr};
 #if USE_SNAPCAST
-  snapcast::SnapcastStream *snapcast_stream_{nullptr};
+  snapcast::SnapcastClient *snapcast_client_{nullptr};
 #endif
   audio::AudioFileType current_audio_file_type_;
   audio::AudioStreamInfo current_audio_stream_info_;

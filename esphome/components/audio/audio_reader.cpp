@@ -199,25 +199,35 @@ esp_err_t AudioReader::start(const std::string &uri, AudioFileType &file_type) {
   return ESP_OK;
 }
 #if USE_SNAPCAST
-esp_err_t AudioReader::start(snapcast::SnapcastStream *stream, AudioFileType &file_type) {
+esp_err_t AudioReader::start(snapcast::SnapcastClient *client, AudioFileType &file_type) {
   if (this->snapcast_stream_ != nullptr) {
     return ESP_FAIL;
   }
-  if (stream == nullptr) {
+  if (client == nullptr) {
     return ESP_FAIL;
   }
-
-  this->snapcast_stream_ = stream;
+  this->snapcast_client_ = client;
+  this->snapcast_stream_ = client->get_stream();
   this->audio_file_type_ = AudioFileType::FLAC;
   file_type = AudioFileType::FLAC;
-
-  auto rb = this->output_ring_buffer_.lock();
-  if (rb) {
-    rb->reset();
-  }
-
   this->snapcast_stream_->start_with_notify(this->output_ring_buffer_, xTaskGetCurrentTaskHandle());
 
+  uint32_t timeout_at = millis() + 2000;
+  while (true) {
+    uint32_t state_value;
+    if (xTaskNotifyWait(0, 0xFFFFFFFFUL, &state_value, pdMS_TO_TICKS(500)) == pdTRUE) {
+      snapcast::StreamState new_state = static_cast<snapcast::StreamState>(state_value);
+      if (new_state == snapcast::StreamState::ERROR) {
+        return -1;
+      }
+      if (new_state == snapcast::StreamState::STREAMING) {
+        return ESP_OK;
+      }
+    }
+    if (millis() > timeout_at) {
+      return -1;
+    }
+  }
   return ESP_OK;
 }
 #endif
@@ -363,12 +373,12 @@ AudioReaderState AudioReader::http_read_() {
 #if USE_SNAPCAST
 AudioReaderState AudioReader::snapcast_read_() {
   uint32_t state_value;
-  if (xTaskNotifyWait(0, 0, &state_value, pdMS_TO_TICKS(500)) == pdTRUE) {
+  if (xTaskNotifyWait(0, 0, &state_value, pdMS_TO_TICKS(50)) == pdTRUE) {
     snapcast::StreamState new_state = static_cast<snapcast::StreamState>(state_value);
     if (new_state == snapcast::StreamState::ERROR) {
       return AudioReaderState::FAILED;
     }
-    if (new_state == snapcast::StreamState::CONNECTED_IDLE) {
+    if (new_state == snapcast::StreamState::CONNECTED_IDLE || new_state == snapcast::StreamState::DESTROYED) {
       return AudioReaderState::FINISHED;
     }
   }
@@ -378,8 +388,8 @@ AudioReaderState AudioReader::snapcast_read_() {
 
 esp_err_t AudioReader::stop() {
 #if USE_SNAPCAST
-  if (this->snapcast_stream_) {
-    this->snapcast_stream_->stop_streaming();
+  if (this->snapcast_client_) {
+    this->snapcast_client_->stop_streaming();
   }
 #endif
   auto rb = this->output_ring_buffer_.lock();
