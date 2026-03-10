@@ -1,4 +1,5 @@
 import esphome.config_validation as cv
+from esphome.components import socket
 import esphome.codegen as cg
 from esphome import automation
 from esphome.const import CONF_ID
@@ -9,6 +10,12 @@ DEPENDENCIES = ["network", "audio"]
 CODEOWNERS = ["@gnumpi"]
 
 CONF_SERVER_IP = "server_ip"
+
+def _consume_sockets(config):
+    """Register socket needs for this component."""
+    # Example: 1 mdns scan + 2 concurrent client connections
+    socket.consume_sockets(3, "snapcast")(config)
+    return config
 
 def AUTO_LOAD():
     if CORE.is_esp8266 or CORE.is_libretiny:
@@ -27,11 +34,13 @@ DisableAction = snapcast_ns.class_(
     "DisableAction", automation.Action, cg.Parented.template(SnapcastClient)
 )
 
-CONFIG_SCHEMA = cv.Schema({
-    cv.GenerateID(): cv.declare_id(SnapcastClient),
-    cv.Optional(CONF_SERVER_IP) : cv.ipaddress
-})
-
+CONFIG_SCHEMA = cv.All(
+    cv.Schema({
+        cv.GenerateID(): cv.declare_id(SnapcastClient),
+        cv.Optional(CONF_SERVER_IP) : cv.ipaddress
+    }),
+     _consume_sockets,
+)
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)

@@ -7,6 +7,7 @@
 #include "chunked_ring_buffer.h"
 
 #if USE_SNAPCAST
+#include "esphome/components/snapcast/snapcast_client.h"
 #include "esphome/components/snapcast/snapcast_stream.h"
 #endif
 
@@ -54,7 +55,7 @@ class AudioReader {
   /// @param stream Pointer to a snapcast stream
   /// @param file_type AudioFileType variable passed-by-reference indicating the type of file being read.
   /// @return ESP_OK
-  esp_err_t start(snapcast::SnapcastStream *stream, AudioFileType &file_type);
+  esp_err_t start(snapcast::SnapcastClient *client, AudioFileType &file_type);
 #endif
 
   /// @brief Reads new file data from the source and sends to the ring buffer sink.
@@ -94,6 +95,7 @@ class AudioReader {
 
 #if USE_SNAPCAST
   snapcast::SnapcastStream *snapcast_stream_{nullptr};
+  snapcast::SnapcastClient *snapcast_client_{nullptr};
 #endif
 };
 }  // namespace audio

@@ -392,7 +392,7 @@ void SpeakerMediaPlayer::loop() {
 #if USE_SNAPCAST
           if (this->snapcast_client_ && this->snapcast_client_->is_snapcast_url(next_item.value().url.value())) {
             this->snapcast_client_->connect_to_url(next_item.value().url.value());
-            this->media_pipeline_->start_snapcast(this->snapcast_client_->get_stream());
+            this->media_pipeline_->start_snapcast(this->snapcast_client_);
           } else
 #endif
           {
@@ -555,6 +555,11 @@ void SpeakerMediaPlayer::set_mute_state_(bool mute_state, bool restore_only) {
       this->defer([this]() { this->unmute_trigger_->trigger(); });
     }
   }
+#if USE_SNAPCAST
+  if (this->snapcast_client_) {
+    this->snapcast_client_->report_volume(this->volume, this->is_muted_);
+  }
+#endif
 }
 
 void SpeakerMediaPlayer::set_volume_(float volume, bool publish, bool restore_only) {
