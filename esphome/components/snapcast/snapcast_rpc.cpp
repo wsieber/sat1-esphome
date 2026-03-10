@@ -516,13 +516,14 @@ void SnapcastControlSession::isolate_client_(std::function<void(const ClientStat
 
 void SnapcastControlSession::request_stop() {
   const ClientState state = this->state_snapshot();
-  if (state.group_members.size() > 1) {
-    // is member of a group, isolate client first
-    this->isolate_client_([this](const ClientState &state) { this->group_request_stop(state); });
-  } else {
-    // is only group memmber
-    this->group_request_stop(state);
-  }
+  this->group_request_stop(state);
+  // if (state.group_members.size() > 1) {
+  //   // is member of a group, isolate client first
+  //   this->isolate_client_([this](const ClientState &state) { this->group_request_stop(state); });
+  // } else {
+  //   // is only group memmber
+  //   this->group_request_stop(state);
+  // }
 }
 
 }  // namespace snapcast
