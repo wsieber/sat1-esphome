@@ -732,7 +732,6 @@ void SnapcastStream::stream_task_() {
 
   auto on_exit_task = [&]() {
     this->stream_task_exiting_ = true;
-    ESP_LOGW(TAG, "TASK EXITING FLAG SET");
     if (this->outgoing_queue_) {
       // Drain and delete any pending messages so they don't leak.
       SnapcastMessage *m = nullptr;
@@ -857,7 +856,6 @@ void SnapcastStream::stream_task_() {
 
     TickType_t wait_time = (this->state_ == StreamState::STREAMING) ? STREAMING_WAIT : IDLE_WAIT;
     if (xTaskNotifyWait(0, 0xFFFFFFFF, &notify_value, wait_time)) {
-      ESP_LOGI(TAG, "stream notify=0x%08" PRIx32, notify_value);
 
       if (notify_value & CONNECT_BIT) {
         destroy_requested = false;
