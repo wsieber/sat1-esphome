@@ -15,7 +15,6 @@ class TAS2780 : public audio_dac::AudioDac, public Component, public i2c::I2CDev
  public:
   void setup() override;
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
   void loop() override;
 
   void init();
