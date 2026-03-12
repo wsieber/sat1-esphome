@@ -856,7 +856,6 @@ void SnapcastStream::stream_task_() {
 
     TickType_t wait_time = (this->state_ == StreamState::STREAMING) ? STREAMING_WAIT : IDLE_WAIT;
     if (xTaskNotifyWait(0, 0xFFFFFFFF, &notify_value, wait_time)) {
-
       if (notify_value & CONNECT_BIT) {
         destroy_requested = false;
 
