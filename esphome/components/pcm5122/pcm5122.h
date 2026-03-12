@@ -13,7 +13,6 @@ class PCM5122 : public audio_dac::AudioDac, public Component, public i2c::I2CDev
  public:
   void setup() override;
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
 
   bool set_mute_off() override;
   bool set_mute_on() override;
