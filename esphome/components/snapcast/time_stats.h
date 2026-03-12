@@ -166,7 +166,7 @@ class TimeStats {
     }
 
     // ---- Bias reduction: pick min-RTT sample from a short window ----
-    window_.push_back({delta, rtt});
+    window_.push_back({delta, rtt, received_time});
     if (window_.size() > window_size_)
       window_.pop_front();
 
