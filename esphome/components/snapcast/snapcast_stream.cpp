@@ -71,22 +71,18 @@ enum StreamTaskBits : uint32_t {
   CONNECTION_DROPPED_BIT = (1 << 5),
 
   // Command sent by the controller logic.
-  // Tells the stream task to begin the audio streaming loop.
-  START_STREAM_BIT = (1 << 6),
-
-  // Command sent by the controller logic.
-  // Tells the stream task to stop the audio streaming loop.
-  STOP_STREAM_BIT = (1 << 7),
+  // Tells the stream task to begin or stop the audio streaming loop, depending on .
+  STREAM_CONTROL_BIT = (1 << 6),
 
   // Command sent by the controller logic.
   // Tells the stream task to immediately send a status report or sync message.
-  SEND_REPORT_BIT = (1 << 8),
+  SEND_REPORT_BIT = (1 << 7),
 
   // Optional: Command sent by the controller logic.
   // Tells the stream task to perform a manual disconnect sequence.
-  DISCONNECT_BIT = (1 << 9),
+  DISCONNECT_BIT = (1 << 8),
 
-  CONNECTION_CLOSED_BIT = (1 << 10),
+  CONNECTION_CLOSED_BIT = (1 << 9),
 
 };
 
@@ -212,7 +208,8 @@ esp_err_t SnapcastStream::start_with_notify(std::weak_ptr<esphome::TimedRingBuff
   ESP_LOGD(TAG, "Starting stream...");
   this->write_ring_buffer_ = ring_buffer;
   this->notification_target_ = notification_task;
-  xTaskNotify(this->stream_task_handle_, START_STREAM_BIT, eSetBits);
+  this->want_streaming_.store(true, std::memory_order_relaxed);
+  xTaskNotify(this->stream_task_handle_, STREAM_CONTROL_BIT, eSetBits);
   return ESP_OK;
 }
 
@@ -221,7 +218,8 @@ esp_err_t SnapcastStream::stop_streaming() {
     return ESP_ERR_INVALID_STATE;
   }
   ESP_LOGD(TAG, "Stop streaming called...");
-  xTaskNotify(this->stream_task_handle_, STOP_STREAM_BIT, eSetBits);
+  this->want_streaming_.store(false, std::memory_order_relaxed);
+  xTaskNotify(this->stream_task_handle_, STREAM_CONTROL_BIT, eSetBits);
   return ESP_OK;
 }
 
@@ -799,7 +797,6 @@ void SnapcastStream::stream_task_() {
   const uint32_t retry_window_ms = 5000;  // retry for 5 seconds then give up
   const uint32_t max_backoff_ms = 10000;
 
-  bool desired_streaming = false;
   bool destroy_requested = false;
 
   uint32_t reconnect_start_ms = 0;  // 0 means not currently retrying
@@ -809,7 +806,7 @@ void SnapcastStream::stream_task_() {
     if (destroy_requested)
       return;
     destroy_requested = true;
-    desired_streaming = false;
+    this->want_streaming_.store(false, std::memory_order_relaxed);
     this->stream_task_exiting_ = true;
     this->set_state_(StreamState::STOPPING);
 
@@ -876,14 +873,12 @@ void SnapcastStream::stream_task_() {
         request_destroy();
       }
 
-      if (notify_value & START_STREAM_BIT) {
-        desired_streaming = true;
-        this->start_streaming_();
-      }
-
-      if (notify_value & STOP_STREAM_BIT) {
-        desired_streaming = false;
-        this->stop_streaming_();
+      if (notify_value & STREAM_CONTROL_BIT) {
+        if (this->want_streaming_.load(std::memory_order_relaxed)) {
+          this->start_streaming_();
+        } else {
+          this->stop_streaming_();
+        }
       }
 
       if (notify_value & SEND_REPORT_BIT) {
@@ -897,7 +892,7 @@ void SnapcastStream::stream_task_() {
         backoff_ms = 250;
         this->send_hello_();
         this->time_stats_.reset();
-        if (desired_streaming) {
+        if (this->want_streaming_.load(std::memory_order_relaxed)) {
           this->start_streaming_();
         } else {
           set_state_(StreamState::CONNECTED_IDLE);
@@ -906,7 +901,7 @@ void SnapcastStream::stream_task_() {
 
       if (notify_value & TASK_CLOSING_BIT) {
         // tx_rx task is closing, we can exit the loop
-        if (desired_streaming) {
+        if (this->want_streaming_.load(std::memory_order_relaxed)) {
           this->set_state_(StreamState::ERROR);
         }
         break;
@@ -998,6 +993,7 @@ void SnapcastStream::stop_streaming_() {
   if (this->state_ != StreamState::STREAMING) {
     return;
   }
+  ESP_LOGD(TAG, "received stop_streamin_()");
   this->set_state_(StreamState::CONNECTED_IDLE);
 }
 
