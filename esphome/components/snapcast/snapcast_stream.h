@@ -119,6 +119,7 @@ class SnapcastStream {
   StreamState state_{StreamState::DESTROYED};
   std::string error_msg_;
   bool want_connected_{false};
+  std::atomic<bool> want_streaming_{false};
 
   tv_t to_local_time_(tv_t server_time) const {
     return server_time - this->est_time_diff_.load(std::memory_order_relaxed) +
