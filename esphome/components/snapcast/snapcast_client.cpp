@@ -182,8 +182,8 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
       this->media_player_ != nullptr && volume >= 0 && volume <= 100) {
     this->media_player_->make_call()
         .set_volume(volume / 100.)
-        .set_command(muted ? media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_MUTE
-                           : media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_UNMUTE)
+        .set_command(muted || volume == 0 ? media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_MUTE
+                                          : media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_UNMUTE)
         .perform();
     return;
   }
