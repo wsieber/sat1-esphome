@@ -38,7 +38,7 @@ packages:
               then:
                 - memory_flasher.write_embedded_image:
 
-  home-assistant-voice: !include satellite1.base.yaml
+  home-assistant-voice: !include satellite1.base.ethernet.yaml
 
 esphome:
   project:
@@ -104,8 +104,8 @@ logger:
 wifi: !remove wifi_id
 improv_serial: !remove
 
-
 ethernet:
+  id: ethernet_id
   type: W5500
   spi_id: spi_0
   cs_pin: GPIO3

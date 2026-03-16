@@ -14,6 +14,7 @@ from esphome.components.esp32 import (
     add_idf_component,
     add_idf_sdkconfig_option,
     get_esp32_variant,
+    include_builtin_idf_component,
 )
 from esphome.components.network import ip_address_literal
 from esphome.components.spi import (
@@ -416,10 +417,16 @@ async def to_code(config):
 
     cg.add_define("USE_ETHERNET")
 
+    # Force ESP-IDF to build ethernet driver (esp_eth.h)
+    add_idf_sdkconfig_option("CONFIG_ETH_ENABLED", "y")
     # Disable WiFi when using Ethernet to save memory
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_ENABLED", False)
     # Also disable WiFi/BT coexistence since WiFi is disabled
     add_idf_sdkconfig_option("CONFIG_SW_COEXIST_ENABLE", False)
+
+    # ESP32 component excludes esp_eth by default; include it so esp_eth.h is available
+    if not CORE.using_arduino:
+        include_builtin_idf_component("esp_eth")
 
     if config[CONF_TYPE] == "LAN8670":
         # Add LAN867x 10BASE-T1S PHY support component
