@@ -636,8 +636,17 @@ void EthernetComponent::start_connect_() {
 bool EthernetComponent::is_connected() { return this->state_ == EthernetComponentState::CONNECTED; }
 
 void EthernetComponent::dump_connect_params_() {
+  if (this->eth_netif_ == nullptr || this->eth_handle_ == nullptr) {
+    ESP_LOGW(TAG, "  Skipping IP/MAC dump: ethernet driver not initialized");
+    return;
+  }
+
   esp_netif_ip_info_t ip;
-  esp_netif_get_ip_info(this->eth_netif_, &ip);
+  esp_err_t ip_err = esp_netif_get_ip_info(this->eth_netif_, &ip);
+  if (ip_err != ESP_OK) {
+    ESP_LOGW(TAG, "  esp_netif_get_ip_info failed: %s", esp_err_to_name(ip_err));
+    // Still try to dump MAC/duplex/speed below, but avoid using uninitialized ip struct.
+  }
   const ip_addr_t *dns_ip1;
   const ip_addr_t *dns_ip2;
   {
@@ -646,16 +655,26 @@ void EthernetComponent::dump_connect_params_() {
     dns_ip2 = dns_getserver(1);
   }
 
-  ESP_LOGCONFIG(TAG,
-                "  IP Address: %s\n"
-                "  Hostname: '%s'\n"
-                "  Subnet: %s\n"
-                "  Gateway: %s\n"
-                "  DNS1: %s\n"
-                "  DNS2: %s",
-                network::IPAddress(&ip.ip).str().c_str(), App.get_name().c_str(),
-                network::IPAddress(&ip.netmask).str().c_str(), network::IPAddress(&ip.gw).str().c_str(),
-                network::IPAddress(dns_ip1).str().c_str(), network::IPAddress(dns_ip2).str().c_str());
+  if (ip_err == ESP_OK) {
+    ESP_LOGCONFIG(TAG,
+                  "  IP Address: %s\n"
+                  "  Hostname: '%s'\n"
+                  "  Subnet: %s\n"
+                  "  Gateway: %s\n"
+                  "  DNS1: %s\n"
+                  "  DNS2: %s",
+                  network::IPAddress(&ip.ip).str().c_str(), App.get_name().c_str(),
+                  network::IPAddress(&ip.netmask).str().c_str(), network::IPAddress(&ip.gw).str().c_str(),
+                  network::IPAddress(dns_ip1).str().c_str(), network::IPAddress(dns_ip2).str().c_str());
+  } else {
+    ESP_LOGCONFIG(TAG,
+                  "  Hostname: '%s'\n"
+                  "  IP Address: (unavailable)\n"
+                  "  DNS1: %s\n"
+                  "  DNS2: %s",
+                  App.get_name().c_str(), network::IPAddress(dns_ip1).str().c_str(),
+                  network::IPAddress(dns_ip2).str().c_str());
+  }
 
 #if USE_NETWORK_IPV6
   struct esp_ip6_addr if_ip6s[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
@@ -707,9 +726,17 @@ const char *EthernetComponent::get_use_address() const { return this->use_addres
 void EthernetComponent::set_use_address(const char *use_address) { this->use_address_ = use_address; }
 
 void EthernetComponent::get_eth_mac_address_raw(uint8_t *mac) {
-  esp_err_t err;
-  err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_MAC_ADDR, mac);
-  ESPHL_ERROR_CHECK(err, "ETH_CMD_G_MAC error");
+  if (this->eth_handle_ == nullptr) {
+    ESP_LOGW(TAG, "ETH_CMD_G_MAC skipped: ethernet handle not initialized");
+    memset(mac, 0, 6);
+    return;
+  }
+  esp_err_t err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_MAC_ADDR, mac);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "ETH_CMD_G_MAC error: %s", esp_err_to_name(err));
+    memset(mac, 0, 6);
+    return;
+  }
 }
 
 std::string EthernetComponent::get_eth_mac_address_pretty() {
@@ -721,6 +748,10 @@ std::string EthernetComponent::get_eth_mac_address_pretty() {
 }
 
 eth_duplex_t EthernetComponent::get_duplex_mode() {
+  if (this->eth_handle_ == nullptr) {
+    ESP_LOGW(TAG, "ETH_CMD_G_DUPLEX_MODE skipped: ethernet handle not initialized");
+    return ETH_DUPLEX_HALF;
+  }
   esp_err_t err;
   eth_duplex_t duplex_mode;
   err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_DUPLEX_MODE, &duplex_mode);
@@ -729,6 +760,10 @@ eth_duplex_t EthernetComponent::get_duplex_mode() {
 }
 
 eth_speed_t EthernetComponent::get_link_speed() {
+  if (this->eth_handle_ == nullptr) {
+    ESP_LOGW(TAG, "ETH_CMD_G_SPEED skipped: ethernet handle not initialized");
+    return ETH_SPEED_10M;
+  }
   esp_err_t err;
   eth_speed_t speed;
   err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_SPEED, &speed);

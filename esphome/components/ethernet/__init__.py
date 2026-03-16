@@ -66,7 +66,6 @@ from esphome.types import ConfigType
 
 from esphome.components.spi import  spi_device_schema
 
-CONFLICTS_WITH = ["wifi"]
 DEPENDENCIES = ["esp32"]
 AUTO_LOAD = ["network"]
 LOGGER = logging.getLogger(__name__)
@@ -419,10 +418,6 @@ async def to_code(config):
 
     # Force ESP-IDF to build ethernet driver (esp_eth.h)
     add_idf_sdkconfig_option("CONFIG_ETH_ENABLED", "y")
-    # Disable WiFi when using Ethernet to save memory
-    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_ENABLED", False)
-    # Also disable WiFi/BT coexistence since WiFi is disabled
-    add_idf_sdkconfig_option("CONFIG_SW_COEXIST_ENABLE", False)
 
     # ESP32 component excludes esp_eth by default; include it so esp_eth.h is available
     if not CORE.using_arduino:

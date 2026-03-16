@@ -47,7 +47,7 @@ packages:
               then:
                 - memory_flasher.write_embedded_image:
 
-  home-assistant-voice: !include satellite1.base.yaml
+  home-assistant-voice: !include satellite1.base.ethernet.yaml
 
 esphome:
   project:
@@ -112,6 +112,7 @@ external_components:
       - snapcast
       - speaker
       - tas2780
+      - ethernet
 
 logger:
   deassert_rts_dtr: true
