@@ -103,6 +103,10 @@ void EthernetComponent::setup() {
   err = esp_netif_init();
   ESPHL_ERROR_CHECK(err, "ETH netif init error");
   err = esp_event_loop_create_default();
+  if (err == ESP_ERR_INVALID_STATE) {
+    // Default loop already exists (e.g. WiFi ran first); use it
+    err = ESP_OK;
+  }
   ESPHL_ERROR_CHECK(err, "ETH event loop error");
 
   esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
@@ -421,7 +425,8 @@ void EthernetComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Type: %s", eth_type);
 }
 
-float EthernetComponent::get_setup_priority() const { return setup_priority::WIFI; }
+// Run after WiFi so WiFi creates the default event loop and inits; we tolerate existing loop
+float EthernetComponent::get_setup_priority() const { return setup_priority::WIFI - 10.0f; }
 
 network::IPAddresses EthernetComponent::get_ip_addresses() {
   network::IPAddresses addresses;

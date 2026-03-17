@@ -120,3 +120,5 @@ logger:
   level: debug
   logs:
     ltr_als_ps: WARN
+    text_sensor: WARN
+    ethernet: ERROR

@@ -32,6 +32,29 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
+  # Globals tracking ethernet connection for on_connect/on_disconnect-style events.
+  - id: ethernet_was_connected
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: ethernet_just_connected
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: ethernet_connection_changed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # Set after we run ble.disable for Ethernet (boot or link-up); cleared when Ethernet disconnects.
+  - id: ble_disabled_for_ethernet
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # One-shot: run ble.disable from interval (lambdas cannot call ble.disable directly).
+  - id: ble_disable_trigger
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 esphome:
   name: ${node_name}
@@ -91,6 +114,8 @@ script:
                 if (esphome::wifi::global_wifi_component != nullptr) {
                   esphome::wifi::global_wifi_component->disable();
                 }
+            # So voice_assistant on_client_connected can pass wait_until not ble.enabled and start micro_wake_word
+            - ble.disable:
           else:
             # No Ethernet IP; ensure WiFi is enabled as fallback
             - lambda: |-
@@ -128,18 +153,56 @@ status_led:
     number: GPIO45
     ignore_strapping_warning: true
 
-binary_sensor:
-  - platform: template
-    id: ethernet_connected
-    name: "Ethernet connected"
-    entity_category: diagnostic
-    lambda: |-
-      return id(ethernet_id).is_connected();
-    on_press:
-      - tas2780.activate:
-          mode: 2
-    on_release:
-      - script.execute: prefer_ethernet_over_wifi
+# Poll ethernet connection and run prefer_ethernet_over_wifi + TAS2780 on connect/disconnect
+# (replaces former "Ethernet connected" binary sensor; Network IP sensor covers user-facing status).
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          bool connected = id(ethernet_id).is_connected();
+          bool was = id(ethernet_was_connected);
+          id(ethernet_was_connected) = connected;
+          id(ethernet_connection_changed) = (connected != was);
+          id(ethernet_just_connected) = (connected && !was);
+      - if:
+          condition:
+            lambda: 'return id(ethernet_connection_changed);'
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(ethernet_just_connected);'
+                then:
+                  - tas2780.activate:
+                      mode: 2
+            - script.execute: prefer_ethernet_over_wifi
+
+# When booting with Ethernet, prefer_ethernet_over_wifi may run before DHCP; disable BLE once we have IP
+# so voice_assistant on_client_connected can pass wait_until not ble.enabled and start micro_wake_word.
+# Only run ble.disable once per Ethernet session (flag cleared when Ethernet disconnects).
+  - interval: 3s
+    then:
+      - lambda: |-
+          if (!id(ethernet_id).is_connected()) {
+            id(ble_disabled_for_ethernet) = false;
+            return;
+          }
+          auto ips = id(ethernet_id).get_ip_addresses();
+          for (auto &ip : ips) {
+            auto s = ip.str();
+            if (!s.empty() && s != "0.0.0.0") {
+              if (!id(ble_disabled_for_ethernet)) {
+                id(ble_disabled_for_ethernet) = true;
+                id(ble_disable_trigger) = true;
+              }
+              return;
+            }
+          }
+      - if:
+          condition:
+            lambda: 'return id(ble_disable_trigger);'
+          then:
+            - lambda: 'id(ble_disable_trigger) = false;'
+            - ble.disable:
 
 satellite1:
   id: satellite1_id
