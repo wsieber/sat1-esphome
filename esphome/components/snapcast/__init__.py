@@ -67,8 +67,8 @@ SNAPCAST_ACTION_SCHEMA = cv.Schema(
 )
 
 
-@automation.register_action("snapcast.enable", EnableAction, SNAPCAST_ACTION_SCHEMA)
-@automation.register_action("snapcast.disable", DisableAction, SNAPCAST_ACTION_SCHEMA)
+@automation.register_action("snapcast.enable", EnableAction, SNAPCAST_ACTION_SCHEMA, synchronous=True)
+@automation.register_action("snapcast.disable", DisableAction, SNAPCAST_ACTION_SCHEMA, synchronous=True)
 async def tas2780_action(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
