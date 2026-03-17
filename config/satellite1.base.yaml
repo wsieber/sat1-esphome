@@ -1,3 +1,4 @@
+# Universal base: WiFi + Ethernet (SHOE). Same firmware works with or without SHOE accessory.
 substitutions:
   # Change to any preferred name
   friendly_name: "Satellite1"
@@ -68,6 +69,37 @@ esphome:
 ota:
   - platform: esphome
     id: ota_esphome
+
+script:
+  - id: prefer_ethernet_over_wifi
+    mode: queued
+    then:
+      - if:
+          condition:
+            lambda: |-
+              auto ips = id(ethernet_id).get_ip_addresses();
+              for (auto &ip : ips) {
+                auto s = ip.str();
+                if (!s.empty() && s != "0.0.0.0") {
+                  return true;
+                }
+              }
+              return false;
+          then:
+            # Ethernet has a valid IPv4 address; disable WiFi to prefer wired
+            - lambda: |-
+                if (esphome::wifi::global_wifi_component != nullptr) {
+                  esphome::wifi::global_wifi_component->disable();
+                }
+            # So voice_assistant on_client_connected can pass wait_until not ble.enabled and start micro_wake_word
+            - ble.disable:
+          else:
+            # No Ethernet IP; ensure WiFi is enabled as fallback and BLE available for Improv
+            - lambda: |-
+                if (esphome::wifi::global_wifi_component != nullptr) {
+                  esphome::wifi::global_wifi_component->enable();
+                }
+            - ble.enable:
 
 dashboard_import:
   package_import_url: github://futureproofhomes/satellite1-esphome/config/satellite1.dashboard.yaml@staging
@@ -146,7 +178,7 @@ memory_flasher:
         - if:
             condition:
               lambda: |-
-                return id(pd_fusb302b).contract_voltage >= 9;
+                return id(pd_fusb302b).contract_voltage >= 9 || id(ethernet_id).is_connected();
             then:
               - tas2780.activate:
                   mode: 2
@@ -168,3 +200,16 @@ memory_flasher:
               lambda: return id(factory_reset_requested);
             then:
               - button.press: factory_reset_button
+
+ethernet:
+  id: ethernet_id
+  type: W5500
+  spi_id: spi_0
+  cs_pin: GPIO3
+  on_connected:
+    # Script disables WiFi and BLE when ethernet has IP (voice_assistant can then use micro_wake_word)
+    - script.execute: prefer_ethernet_over_wifi
+    - tas2780.activate:
+        mode: 2
+  on_disconnected:
+    - script.execute: prefer_ethernet_over_wifi

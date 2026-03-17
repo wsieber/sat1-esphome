@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/network/ip_address.h"
 
 #include "esphome/components/spi/spi.h"
@@ -94,10 +95,13 @@ class EthernetComponent : public Component {
   const char *get_use_address() const;
   void set_use_address(const char *use_address);
   void get_eth_mac_address_raw(uint8_t *mac);
-  std::string get_eth_mac_address_pretty();
+  const char *get_eth_mac_address_pretty();
   eth_duplex_t get_duplex_mode();
   eth_speed_t get_link_speed();
   bool powerdown();
+
+  void add_on_connected_callback(std::function<void()> &&callback);
+  void add_on_disconnected_callback(std::function<void()> &&callback);
 
  protected:
   static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
@@ -159,16 +163,24 @@ class EthernetComponent : public Component {
   bool ipv6_setup_done_{false};
 #endif /* LWIP_IPV6 */
 
+  // When no link, stop driver to free buffers; retry after this time (ms)
+  uint32_t next_eth_retry_time_{0};
+
   // Pointers at the end (naturally aligned)
   esp_netif_t *eth_netif_{nullptr};
   esp_eth_handle_t eth_handle_;
   esp_eth_phy_t *phy_{nullptr};
   optional<std::array<uint8_t, 6>> fixed_mac_;
 
+  CallbackManager<void()> connected_callback_{};
+  CallbackManager<void()> disconnected_callback_{};
+
  private:
   // Stores a pointer to a string literal (static storage duration).
   // ONLY set from Python-generated code with string literals - never dynamic strings.
   const char *use_address_{""};
+  // Buffer for get_eth_mac_address_pretty() to avoid heap allocation (e.g. "AA:BB:CC:DD:EE:FF").
+  char mac_pretty_buf_[18]{};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

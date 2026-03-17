@@ -8,6 +8,7 @@
 #include <lwip/dns.h>
 #include <cinttypes>
 #include "esp_event.h"
+#include "esp_system.h"
 
 #ifdef USE_ETHERNET_LAN8670
 #include "esp_eth_phy_lan867x.h"
@@ -129,7 +130,7 @@ void EthernetComponent::setup() {
       .input_delay_ns = 0,
       .spics_io_num = this->cs_pin_,
       .flags = 0,
-      .queue_size = 20,
+      .queue_size = 8,
       .pre_cb = nullptr,
       .post_cb = nullptr,
   };
@@ -298,6 +299,20 @@ void EthernetComponent::loop() {
         ESP_LOGI(TAG, "Starting connection");
         this->state_ = EthernetComponentState::CONNECTING;
         this->start_connect_();
+      } else if (this->next_eth_retry_time_ != 0 && now >= this->next_eth_retry_time_) {
+        this->next_eth_retry_time_ = now + 60000;
+        // Skip starting the driver when heap is low (e.g. during TTS) to avoid "no mem for receive buffer" flood
+        const size_t free_heap = esp_get_free_heap_size();
+        const size_t min_heap_for_eth = 100 * 1024;  // 100 KB
+        if (free_heap >= min_heap_for_eth) {
+          esp_err_t err = esp_eth_start(this->eth_handle_);
+          if (err != ESP_OK) {
+            ESP_LOGW(TAG, "esp_eth_start failed: %s", esp_err_to_name(err));
+          }
+        } else {
+          ESP_LOGD(TAG, "Deferring eth start (heap %zu < %zu); will retry in 60s", (size_t) free_heap,
+                   (size_t) min_heap_for_eth);
+        }
       }
       break;
     case EthernetComponentState::CONNECTING:
@@ -311,18 +326,27 @@ void EthernetComponent::loop() {
 
         this->dump_connect_params_();
         this->status_clear_warning();
+        this->defer([this]() { this->connected_callback_.call(); });
       } else if (now - this->connect_begin_ > 15000) {
-        ESP_LOGW(TAG, "Connecting failed; reconnecting");
-        this->start_connect_();
+        ESP_LOGD(TAG, "No eth network detected; stopping driver to free memory; will retry in 60s");
+        esp_err_t err = esp_eth_stop(this->eth_handle_);
+        if (err == ESP_OK) {
+          this->next_eth_retry_time_ = now + 60000;  // Retry in 60s
+        } else {
+          ESP_LOGW(TAG, "esp_eth_stop failed: %s; will retry connect", esp_err_to_name(err));
+          this->start_connect_();
+        }
       }
       break;
     case EthernetComponentState::CONNECTED:
       if (!this->started_) {
         ESP_LOGI(TAG, "Stopped connection");
         this->state_ = EthernetComponentState::STOPPED;
+        this->defer([this]() { this->disconnected_callback_.call(); });
       } else if (!this->connected_) {
         ESP_LOGW(TAG, "Connection lost; reconnecting");
         this->state_ = EthernetComponentState::CONNECTING;
+        this->defer([this]() { this->disconnected_callback_.call(); });
         this->start_connect_();
       } else {
         this->finish_connect_();
@@ -640,6 +664,14 @@ void EthernetComponent::start_connect_() {
 
 bool EthernetComponent::is_connected() { return this->state_ == EthernetComponentState::CONNECTED; }
 
+void EthernetComponent::add_on_connected_callback(std::function<void()> &&callback) {
+  this->connected_callback_.add(std::move(callback));
+}
+
+void EthernetComponent::add_on_disconnected_callback(std::function<void()> &&callback) {
+  this->disconnected_callback_.add(std::move(callback));
+}
+
 void EthernetComponent::dump_connect_params_() {
   if (this->eth_netif_ == nullptr || this->eth_handle_ == nullptr) {
     ESP_LOGW(TAG, "  Skipping IP/MAC dump: ethernet driver not initialized");
@@ -695,7 +727,7 @@ void EthernetComponent::dump_connect_params_() {
                 "  MAC Address: %s\n"
                 "  Is Full Duplex: %s\n"
                 "  Link Speed: %u",
-                this->get_eth_mac_address_pretty().c_str(), YESNO(this->get_duplex_mode() == ETH_DUPLEX_FULL),
+                this->get_eth_mac_address_pretty(), YESNO(this->get_duplex_mode() == ETH_DUPLEX_FULL),
                 this->get_link_speed() == ETH_SPEED_100M ? 100 : 10);
 }
 
@@ -744,12 +776,11 @@ void EthernetComponent::get_eth_mac_address_raw(uint8_t *mac) {
   }
 }
 
-std::string EthernetComponent::get_eth_mac_address_pretty() {
+const char *EthernetComponent::get_eth_mac_address_pretty() {
   uint8_t mac[6];
   get_eth_mac_address_raw(mac);
-  char buf[18];
-  format_mac_addr_upper(mac, buf);
-  return std::string(buf);
+  format_mac_addr_upper(mac, this->mac_pretty_buf_);
+  return this->mac_pretty_buf_;
 }
 
 eth_duplex_t EthernetComponent::get_duplex_mode() {

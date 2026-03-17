@@ -1,7 +1,10 @@
+# Universal board: WiFi + Ethernet (W5500 on spi_0). esp_eth via ethernet component.
 esphome:
   platformio_options:
     board_build.flash_mode: dio
     board_upload.maximum_size: 16777216
+    board_build.cmake_extra_args: >-
+      -DEXCLUDE_COMPONENTS=cmock;driver;esp_adc;esp_driver_dac;esp_driver_i2s;esp_driver_mcpwm;esp_driver_pcnt;esp_driver_touch_sens;esp_driver_twai;esp_hid;esp_https_ota;esp_https_server;esp_lcd;esp_local_ctrl;espcoredump;fatfs;mqtt;openthread;perfmon;protocomm;spiffs;ulp;unity;wear_levelling;wifi_provisioning
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -50,6 +53,9 @@ esp32:
 
       # MDNS
       CONFIG_MDNS_MEMORY_ALLOC_SPIRAM: "y"
+
+      # Ethernet (W5500 on spi_0)
+      CONFIG_ETH_ENABLED: "y"
 
 psram:
   mode: octal

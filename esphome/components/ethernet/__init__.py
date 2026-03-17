@@ -1,6 +1,6 @@
 import logging
 
-from esphome import pins
+from esphome import automation, pins
 import esphome.codegen as cg
 from esphome.components.esp32 import (
     VARIANT_ESP32,
@@ -48,6 +48,7 @@ from esphome.const import (
     CONF_SPI_ID,
     CONF_STATIC_IP,
     CONF_SUBNET,
+    CONF_TRIGGER_ID,
     CONF_TYPE,
     CONF_USE_ADDRESS,
     CONF_VALUE,
@@ -95,6 +96,10 @@ ESP32P4_RMII_DEFAULT_PINS = {
 
 ethernet_ns = cg.esphome_ns.namespace("ethernet")
 PHYRegister = ethernet_ns.struct("PHYRegister")
+EthernetConnectedTrigger = ethernet_ns.class_("EthernetConnectedTrigger", automation.Trigger)
+EthernetDisconnectedTrigger = ethernet_ns.class_("EthernetDisconnectedTrigger", automation.Trigger)
+CONF_ON_CONNECTED = "on_connected"
+CONF_ON_DISCONNECTED = "on_disconnected"
 CONF_PHY_ADDR = "phy_addr"
 CONF_MDC_PIN = "mdc_pin"
 CONF_MDIO_PIN = "mdio_pin"
@@ -234,6 +239,12 @@ BASE_SCHEMA = cv.Schema(
             "new mdns component instead."
         ),
         cv.Optional(CONF_MAC_ADDRESS): cv.mac_address,
+        cv.Optional(CONF_ON_CONNECTED): automation.validate_automation(
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(EthernetConnectedTrigger)}
+        ),
+        cv.Optional(CONF_ON_DISCONNECTED): automation.validate_automation(
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(EthernetDisconnectedTrigger)}
+        ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -413,6 +424,13 @@ async def to_code(config):
 
     if mac_address := config.get(CONF_MAC_ADDRESS):
         cg.add(var.set_fixed_mac(mac_address.parts))
+
+    for conf in config.get(CONF_ON_CONNECTED, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trigger, [], conf)
+    for conf in config.get(CONF_ON_DISCONNECTED, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trigger, [], conf)
 
     cg.add_define("USE_ETHERNET")
 

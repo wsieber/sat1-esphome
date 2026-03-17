@@ -47,7 +47,7 @@ packages:
               then:
                 - memory_flasher.write_embedded_image:
 
-  home-assistant-voice: !include satellite1.base.ethernet.yaml
+  home-assistant-voice: !include satellite1.base.yaml
 
 esphome:
   project:
@@ -121,4 +121,4 @@ logger:
   logs:
     ltr_als_ps: WARN
     text_sensor: WARN
-    ethernet: ERROR
+    ethernet: WARN
