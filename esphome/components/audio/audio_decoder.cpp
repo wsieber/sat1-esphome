@@ -284,7 +284,7 @@ FileDecoderState AudioDecoder::decode_flac_() {
 
   auto result = this->flac_decoder_->decode_frame(
       this->input_transfer_buffer_->get_buffer_start(), this->input_transfer_buffer_->available(),
-      reinterpret_cast<int16_t *>(this->output_transfer_buffer_->get_buffer_end()), &output_samples);
+      this->output_transfer_buffer_->get_buffer_end(), &output_samples);
 
 #if SNAPCAST_DEBUG
   time_acc += micros() - start_time_stamp;
@@ -337,7 +337,7 @@ FileDecoderState AudioDecoder::decode_mp3_() {
 
   // Advance read pointer to match the offset for the syncword
   this->input_transfer_buffer_->decrease_buffer_length(offset);
-  uint8_t *buffer_start = this->input_transfer_buffer_->get_buffer_start();
+  const uint8_t *buffer_start = this->input_transfer_buffer_->get_buffer_start();
 
   buffer_length = (int) this->input_transfer_buffer_->available();
   int err = esp_audio_libs::helix_decoder::MP3Decode(this->mp3_decoder_, &buffer_start, &buffer_length,
