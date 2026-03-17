@@ -15,6 +15,8 @@ from esphome.const import (
     CONF_FORMAT,
     CONF_ID,
     CONF_NUM_CHANNELS,
+    CONF_ON_TURN_OFF,
+    CONF_ON_TURN_ON,
     CONF_PATH,
     CONF_RAW_DATA_ID,
     CONF_SAMPLE_RATE,
@@ -345,6 +347,9 @@ FINAL_VALIDATE_SCHEMA = cv.All(
 
 
 async def to_code(config):
+    if CONF_ON_TURN_OFF in config or CONF_ON_TURN_ON in config:
+        cg.add_define("USE_SPEAKER_MEDIA_PLAYER_ON_OFF", True)
+    
     if CORE.data[DOMAIN][config[CONF_ID].id][CONF_CODEC_SUPPORT_ENABLED]:
         # Compile all supported audio codecs
         cg.add_define("USE_AUDIO_FLAC_SUPPORT", True)
