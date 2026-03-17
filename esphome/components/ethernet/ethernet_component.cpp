@@ -328,14 +328,8 @@ void EthernetComponent::loop() {
         this->status_clear_warning();
         this->defer([this]() { this->connected_callback_.call(); });
       } else if (now - this->connect_begin_ > 15000) {
-        ESP_LOGD(TAG, "No eth network detected; stopping driver to free memory; will retry in 60s");
-        esp_err_t err = esp_eth_stop(this->eth_handle_);
-        if (err == ESP_OK) {
-          this->next_eth_retry_time_ = now + 60000;  // Retry in 60s
-        } else {
-          ESP_LOGW(TAG, "esp_eth_stop failed: %s; will retry connect", esp_err_to_name(err));
-          this->start_connect_();
-        }
+        ESP_LOGD(TAG, "No eth link yet; keeping driver active, disabling loop until link event");
+        this->disable_loop();
       }
       break;
     case EthernetComponentState::CONNECTED:
@@ -499,6 +493,7 @@ void EthernetComponent::eth_event_handler(void *arg, esp_event_base_t event_base
       break;
     case ETHERNET_EVENT_CONNECTED:
       event_name = "ETH connected";
+      global_eth_component->enable_loop_soon_any_context();
       break;
     case ETHERNET_EVENT_DISCONNECTED:
       event_name = "ETH disconnected";
