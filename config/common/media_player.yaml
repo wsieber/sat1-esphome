@@ -171,6 +171,7 @@ media_player:
     id: external_media_player
     name: Sat1 Media Player
     internal: false
+    task_stack_in_psram: true
     volume_increment: 0.05
     volume_min: 0.1
     volume_max: 1.
