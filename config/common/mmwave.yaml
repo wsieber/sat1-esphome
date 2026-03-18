@@ -1,0 +1,335 @@
+# =============================================================================
+# Universal mmWave radar configuration
+# Auto-detects LD2410 or LD2450 at boot; hides irrelevant entities when no
+# matching sensor is found.
+# =============================================================================
+
+uart:
+  id: uart_mmwave
+  tx_pin: GPIO43
+  rx_pin: GPIO44
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+satellite1_radar:
+  id: sat1_radar
+  uart_id: uart_mmwave
+
+# ---------------------------------------------------------------------------
+# Common binary sensors (visible when any radar is detected)
+# ---------------------------------------------------------------------------
+binary_sensor:
+  - platform: satellite1_radar
+    has_target:
+      name: Presence
+    has_moving_target:
+      name: Moving Target
+    has_still_target:
+      name: Still Target
+
+# ---------------------------------------------------------------------------
+# Text sensors
+# ---------------------------------------------------------------------------
+text_sensor:
+  - platform: satellite1_radar
+    radar_type:
+      name: "Detected Radar"
+    # LD2450-specific
+    ld2450_version:
+      name: "LD2450 Firmware"
+    ld2450_mac:
+      name: "LD2450 BT MAC"
+    target_1:
+      direction:
+        name: "Target-1 Direction"
+    target_2:
+      direction:
+        name: "Target-2 Direction"
+    target_3:
+      direction:
+        name: "Target-3 Direction"
+
+# ---------------------------------------------------------------------------
+# Numeric sensors
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: satellite1_radar
+
+    # LD2410 sensors
+    ld2410_moving_distance:
+      name: Moving Distance
+    ld2410_still_distance:
+      name: Still Distance
+    ld2410_moving_energy:
+      name: Moving Energy
+      disabled_by_default: true
+    ld2410_still_energy:
+      name: Still Energy
+      disabled_by_default: true
+    ld2410_detection_distance:
+      name: Detection Distance
+      disabled_by_default: true
+    ld2410_light:
+      name: Illuminance Level
+      disabled_by_default: true
+
+    ld2410_gates:
+      g0:
+        move_energy:
+          name: g0 moving energy
+        still_energy:
+          name: g0 still energy
+      g1:
+        move_energy:
+          name: g1 moving energy
+        still_energy:
+          name: g1 still energy
+      g2:
+        move_energy:
+          name: g2 moving energy
+        still_energy:
+          name: g2 still energy
+      g3:
+        move_energy:
+          name: g3 moving energy
+        still_energy:
+          name: g3 still energy
+      g4:
+        move_energy:
+          name: g4 moving energy
+        still_energy:
+          name: g4 still energy
+      g5:
+        move_energy:
+          name: g5 moving energy
+        still_energy:
+          name: g5 still energy
+      g6:
+        move_energy:
+          name: g6 moving energy
+        still_energy:
+          name: g6 still energy
+      g7:
+        move_energy:
+          name: g7 moving energy
+        still_energy:
+          name: g7 still energy
+      g8:
+        move_energy:
+          name: g8 moving energy
+        still_energy:
+          name: g8 still energy
+
+    # LD2450 sensors
+    ld2450_target_count:
+      name: Presence Target Count
+    ld2450_still_target_count:
+      name: Still Target Count
+    ld2450_moving_target_count:
+      name: Moving Target Count
+
+    ld2450_targets:
+      target_1:
+        x:
+          name: Target-1 X
+        y:
+          name: Target-1 Y
+        speed:
+          name: Target-1 Speed
+        angle:
+          name: Target-1 Angle
+        distance:
+          name: Target-1 Distance
+        resolution:
+          name: Target-1 Resolution
+      target_2:
+        x:
+          name: Target-2 X
+        y:
+          name: Target-2 Y
+        speed:
+          name: Target-2 Speed
+        angle:
+          name: Target-2 Angle
+        distance:
+          name: Target-2 Distance
+        resolution:
+          name: Target-2 Resolution
+      target_3:
+        x:
+          name: Target-3 X
+        y:
+          name: Target-3 Y
+        speed:
+          name: Target-3 Speed
+        angle:
+          name: Target-3 Angle
+        distance:
+          name: Target-3 Distance
+        resolution:
+          name: Target-3 Resolution
+
+    ld2450_zones:
+      zone_1:
+        target_count:
+          name: Zone-1 All Target Count
+        still_target_count:
+          name: Zone-1 Still Target Count
+        moving_target_count:
+          name: Zone-1 Moving Target Count
+      zone_2:
+        target_count:
+          name: Zone-2 All Target Count
+        still_target_count:
+          name: Zone-2 Still Target Count
+        moving_target_count:
+          name: Zone-2 Moving Target Count
+      zone_3:
+        target_count:
+          name: Zone-3 All Target Count
+        still_target_count:
+          name: Zone-3 Still Target Count
+        moving_target_count:
+          name: Zone-3 Moving Target Count
+
+# ---------------------------------------------------------------------------
+# Number entities (configuration)
+# ---------------------------------------------------------------------------
+number:
+  - platform: satellite1_radar
+
+    # LD2410 numbers
+    ld2410_timeout:
+      name: LD2410 Timeout
+    ld2410_max_move_distance_gate:
+      name: Max Moving Distance Gate
+    ld2410_max_still_distance_gate:
+      name: Max Still Distance Gate
+    ld2410_light_threshold:
+      name: Light Threshold
+      disabled_by_default: true
+
+    ld2410_gates:
+      g0:
+        move_threshold:
+          name: g0 moving threshold
+        still_threshold:
+          name: g0 still threshold
+      g1:
+        move_threshold:
+          name: g1 moving threshold
+        still_threshold:
+          name: g1 still threshold
+      g2:
+        move_threshold:
+          name: g2 moving threshold
+        still_threshold:
+          name: g2 still threshold
+      g3:
+        move_threshold:
+          name: g3 moving threshold
+        still_threshold:
+          name: g3 still threshold
+      g4:
+        move_threshold:
+          name: g4 moving threshold
+        still_threshold:
+          name: g4 still threshold
+      g5:
+        move_threshold:
+          name: g5 moving threshold
+        still_threshold:
+          name: g5 still threshold
+      g6:
+        move_threshold:
+          name: g6 moving threshold
+        still_threshold:
+          name: g6 still threshold
+      g7:
+        move_threshold:
+          name: g7 moving threshold
+        still_threshold:
+          name: g7 still threshold
+      g8:
+        move_threshold:
+          name: g8 moving threshold
+        still_threshold:
+          name: g8 still threshold
+
+    # LD2450 numbers
+    ld2450_timeout:
+      name: "LD2450 Timeout"
+
+    ld2450_zones:
+      zone_1:
+        x1:
+          name: Zone-1 X1
+        y1:
+          name: Zone-1 Y1
+        x2:
+          name: Zone-1 X2
+        y2:
+          name: Zone-1 Y2
+      zone_2:
+        x1:
+          name: Zone-2 X1
+        y1:
+          name: Zone-2 Y1
+        x2:
+          name: Zone-2 X2
+        y2:
+          name: Zone-2 Y2
+      zone_3:
+        x1:
+          name: Zone-3 X1
+        y1:
+          name: Zone-3 Y1
+        x2:
+          name: Zone-3 X2
+        y2:
+          name: Zone-3 Y2
+
+# ---------------------------------------------------------------------------
+# Switches
+# ---------------------------------------------------------------------------
+switch:
+  - platform: satellite1_radar
+    ld2410_engineering_mode:
+      name: "Engineering Mode"
+    ld2410_bluetooth:
+      name: "Control Bluetooth"
+    ld2450_bluetooth:
+      name: "Bluetooth"
+    ld2450_multi_target:
+      name: "Multi Target Tracking"
+
+# ---------------------------------------------------------------------------
+# Selects
+# ---------------------------------------------------------------------------
+select:
+  - platform: satellite1_radar
+    ld2410_distance_resolution:
+      name: Distance Resolution
+    ld2410_light_function:
+      name: Light Function
+      disabled_by_default: true
+    ld2450_baud_rate:
+      name: "Baud Rate"
+    ld2450_zone_type:
+      name: "Zone Type"
+
+# ---------------------------------------------------------------------------
+# Buttons
+# ---------------------------------------------------------------------------
+button:
+  - platform: satellite1_radar
+    factory_reset:
+      name: "Radar Factory Reset"
+      entity_category: "config"
+    restart:
+      name: "Radar Restart"
+      entity_category: "config"
+    query_params:
+      name: "Radar Update Sensors"
+      entity_category: "config"

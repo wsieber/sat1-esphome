@@ -16,6 +16,7 @@ external_components:
       - pcm5122
       - resampler
       - satellite1
+      - satellite1_radar
       - snapcast
       - speaker
       - tas2780
