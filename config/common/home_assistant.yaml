@@ -63,6 +63,32 @@ switch:
 
 text_sensor:
   - platform: template
+    id: network_ip
+    name: "Network IP"
+    icon: "mdi:ip-network"
+    entity_category: "diagnostic"
+    update_interval: 5s
+    lambda: |-
+      // Prefer Ethernet IP if available, otherwise WiFi IP; fall back to status string.
+      auto ips = id(ethernet_id).get_ip_addresses();
+      for (auto &ip : ips) {
+        auto s = ip.str();
+        if (!s.empty() && s != "0.0.0.0") {
+          return std::string("Ethernet: ") + s;
+        }
+      }
+      if (esphome::wifi::global_wifi_component != nullptr) {
+        auto wifi_ips = esphome::wifi::global_wifi_component->get_ip_addresses();
+        for (auto &ip : wifi_ips) {
+          auto s = ip.str();
+          if (!s.empty() && s != "0.0.0.0") {
+            return std::string("WiFi: ") + s;
+          }
+        }
+      }
+      return std::string("Disconnected");
+
+  - platform: template
     id: pd_state_text
     name: "USB-C Power Supply"
     icon: "mdi:usb-c-port"

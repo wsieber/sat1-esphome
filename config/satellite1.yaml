@@ -20,7 +20,11 @@ packages:
 
     wifi:
       on_disconnect:
-        - ble.enable:
+        - if:
+            condition:
+              lambda: return !id(ethernet_id).is_connected();
+            then:
+              - ble.enable:
       on_connect:
         - delay: 5s  # Gives time for improv results to be transmitted
         - ble.disable:
@@ -112,6 +116,7 @@ external_components:
       - snapcast
       - speaker
       - tas2780
+      - ethernet
 
 logger:
   deassert_rts_dtr: true
@@ -119,3 +124,4 @@ logger:
   level: debug
   logs:
     ltr_als_ps: WARN
+    ethernet: WARN

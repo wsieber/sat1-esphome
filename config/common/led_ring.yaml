@@ -520,7 +520,7 @@ script:
             id(control_leds_improv_ble_state).execute();
           } else if (id(init_in_progress)) {
             id(control_leds_init_state).execute();
-          } else if (!id(wifi_id).is_connected() || !id(api_id).is_connected()){
+          } else if (!id(api_id).is_connected()) {
             id(control_leds_no_ha_connection_state).execute();
           } else if (id(volume_buttons_touched)) {
             id(control_leds_volume_buttons_touched).execute();
@@ -572,25 +572,46 @@ script:
   # Blue Twinkle if Wifi is connected, Else solid warm white
   - id: control_leds_init_state
     then:
-      - if:
-          condition:
-            wifi.connected:
-          then:
-            - light.turn_on:
-                brightness: 66%
-                red: 9.4%
-                green: 73.3%
-                blue: 94.9%
-                id: voice_assistant_leds
-                effect: "Twinkle"
-          else:
-            - light.turn_on:
-                brightness: 33%
-                red: 100%
-                green: 89%
-                blue: 71%
-                id: voice_assistant_leds
-                effect: "none"
+      - lambda: |-
+          bool has_ip = false;
+          // Prefer Ethernet IP
+          auto eth_ips = id(ethernet_id).get_ip_addresses();
+          for (auto &ip : eth_ips) {
+            auto s = ip.str();
+            if (!s.empty() && s != "0.0.0.0") {
+              has_ip = true;
+              break;
+            }
+          }
+          // Fallback to WiFi IP if Ethernet has none
+          if (!has_ip && esphome::wifi::global_wifi_component != nullptr) {
+            auto wifi_ips = esphome::wifi::global_wifi_component->get_ip_addresses();
+            for (auto &ip : wifi_ips) {
+              auto s = ip.str();
+              if (!s.empty() && s != "0.0.0.0") {
+                has_ip = true;
+                break;
+              }
+            }
+          }
+
+          auto call = id(voice_assistant_leds).make_call();
+          if (has_ip) {
+            // Connected: blue twinkle
+            call.set_brightness(0.66f);
+            call.set_red(0.094f);
+            call.set_green(0.733f);
+            call.set_blue(0.949f);
+            call.set_effect("Twinkle");
+          } else {
+            // Still connecting: solid warm white
+            call.set_brightness(0.33f);
+            call.set_red(1.0f);
+            call.set_green(0.89f);
+            call.set_blue(0.71f);
+            call.set_effect("none");
+          }
+          call.perform();
 
   # Script executed when the device has no connection to Home Assistant
   # Red Twinkle (This will be visible during HA updates for example)
