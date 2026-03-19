@@ -10,7 +10,7 @@ api:
 button:
   # Restarts Sat1 Device
   - platform: restart
-    name: "Restart Sat1"
+    name: "Satellite1 Restart"
     entity_category: diagnostic
 
   # Restores the Sat1 ESP back to factory settings

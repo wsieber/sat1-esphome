@@ -4,38 +4,46 @@ sensor:
     address: 0x38
     variant: AHT20
     temperature:
-      name: Temperature
+      name: Room Temperature
       id: temperature_sensor
       filters:
         - offset: ${temp_offset}
-        - lambda: "return x + id(temp_offset_ui).state;"
+        - lambda: |-
+            float offset = id(temp_offset_ui).state;
+            if (id(temp_offset_unit).state == "Fahrenheit") {
+              offset = offset * 5.0f / 9.0f;
+            }
+            return x + offset;
     humidity:
-      name: Humidity
+      name: Room Humidity
       id: humidity_sensor
       filters:
         - offset: ${humidity_offset}
         - lambda: "return x + id(humidity_offset_ui).state;"
+
   - platform: wifi_signal
     name: "Wi-Fi Signal Strength"
     entity_category: "diagnostic"
     update_interval: 60s
 
   - platform: ltr_als_ps
+    id: ltr_als_ps_sensor
     address: 0x29
     type: ALS
     update_interval: 60s
-
-    # short variant of sensor definition:
-    ambient_light: "Ambient Light"
+    ambient_light:
+      name: "Room Luminosity"
+      id: luminosity_sensor
+      filters:
+        - lambda: "return x * (1.0f + id(luminosity_offset_ui).state / 100.0f);"
 
 number:
   # Dynamically adjust the temperature and humidity offset.  Credit goes to Lewis over @ EverythingSmartHome.  I admire your work and hope to meet someday.  Beers on me.
   - platform: template
     name: "Offset Temperature"
     id: temp_offset_ui
-    device_class: temperature
-    min_value: -20
-    max_value: 20
+    min_value: -100
+    max_value: 100
     step: 0.1
     mode: box
     update_interval: never
@@ -46,6 +54,23 @@ number:
     entity_category: config
     on_value:
       - lambda: 'id(aht20_temp_hum_sensor).update();'
+
+  - platform: template
+    name: "Offset Luminosity"
+    id: luminosity_offset_ui
+    unit_of_measurement: "%"
+    min_value: -1000
+    max_value: 1000
+    step: 1
+    mode: box
+    update_interval: never
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    icon: "mdi:brightness-6"
+    entity_category: config
+    on_value:
+      - lambda: 'id(ltr_als_ps_sensor).update();'
 
   - platform: template
     name: "Offset Humidity"
@@ -60,6 +85,21 @@ number:
     restore_value: true
     initial_value: 0
     icon: "mdi:water-percent"
+    entity_category: config
+    on_value:
+      - lambda: 'id(aht20_temp_hum_sensor).update();'
+
+select:
+  - platform: template
+    name: "Offset Temperature Unit"
+    id: temp_offset_unit
+    options:
+      - "Celsius"
+      - "Fahrenheit"
+    initial_option: "Celsius"
+    optimistic: true
+    restore_value: true
+    icon: "mdi:thermometer-lines"
     entity_category: config
     on_value:
       - lambda: 'id(aht20_temp_hum_sensor).update();'

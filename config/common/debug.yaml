@@ -53,7 +53,7 @@ sensor:
 button:
   # Restarts Sat1 to safe mode
   - platform: safe_mode
-    name: "Restart Sat1 (Safe Mode)"
+    name: "Satellite1 Restart (Safe Mode)"
     entity_category: diagnostic
 
   - platform: template
