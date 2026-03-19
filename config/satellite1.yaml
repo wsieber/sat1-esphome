@@ -109,6 +109,7 @@ external_components:
       - pcm5122
       - resampler
       - satellite1
+      - satellite1_radar
       - snapcast
       - speaker
       - tas2780
@@ -119,3 +120,6 @@ logger:
   level: debug
   logs:
     ltr_als_ps: WARN
+    text_sensor: WARN
+    sensor: WARN
+    binary_sensor: WARN
