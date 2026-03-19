@@ -4,6 +4,17 @@
 namespace esphome {
 namespace satellite1_radar {
 
+void Satellite1RadarTunerSwitch::write_state(bool state) {
+  this->publish_state(state);
+#ifdef USE_ESP_IDF
+  if (parent_ == nullptr) return;
+  if (state)
+    parent_->start_tuner();
+  else
+    parent_->stop_tuner();
+#endif
+}
+
 void Satellite1RadarButton::press_action() {
   if (parent_ == nullptr)
     return;

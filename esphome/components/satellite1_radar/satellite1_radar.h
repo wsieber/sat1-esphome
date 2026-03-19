@@ -13,6 +13,9 @@
 #include "radar_entities.h"
 #include "ld2410_handler.h"
 #include "ld2450_handler.h"
+#ifdef USE_ESP_IDF
+#include "radar_tuner_server.h"
+#endif
 
 namespace esphome {
 namespace satellite1_radar {
@@ -41,7 +44,10 @@ class Satellite1Radar : public Component, public uart::UARTDevice {
   void set_moving_target_binary_sensor(binary_sensor::BinarySensor *s) { moving_target_binary_sensor_ = s; }
   void set_still_target_binary_sensor(binary_sensor::BinarySensor *s) { still_target_binary_sensor_ = s; }
   void set_radar_type_text_sensor(text_sensor::TextSensor *s) { radar_type_text_sensor_ = s; }
-
+  void set_radar_firmware_text_sensor(text_sensor::TextSensor *s) {
+    ld2410_.version_text_sensor = s;
+    ld2450_.version_text_sensor = s;
+  }
   // --- LD2410 entity setters ---
   void set_ld2410_moving_distance_sensor(sensor::Sensor *s) { ld2410_.moving_distance = s; }
   void set_ld2410_still_distance_sensor(sensor::Sensor *s) { ld2410_.still_distance = s; }
@@ -99,37 +105,55 @@ class Satellite1Radar : public Component, public uart::UARTDevice {
     if (target < LD2450Handler::NUM_TARGETS) ld2450_.target_resolution[target] = s;
   }
 
-  void set_ld2450_zone_target_count_sensor(int zone, sensor::Sensor *s) {
-    if (zone < LD2450Handler::NUM_ZONES) ld2450_.zone_target_count[zone] = s;
-  }
-  void set_ld2450_zone_still_target_count_sensor(int zone, sensor::Sensor *s) {
-    if (zone < LD2450Handler::NUM_ZONES) ld2450_.zone_still_target_count[zone] = s;
-  }
-  void set_ld2450_zone_moving_target_count_sensor(int zone, sensor::Sensor *s) {
-    if (zone < LD2450Handler::NUM_ZONES) ld2450_.zone_moving_target_count[zone] = s;
+  void set_ld2450_zone_state_text_sensor(int zone, text_sensor::TextSensor *s) {
+    if (zone < LD2450Handler::NUM_ZONES) ld2450_.zone_state[zone] = s;
   }
 
+  void set_ld2450_stability_number(number::Number *n) { ld2450_.stability_number = n; }
   void set_ld2450_timeout_number(number::Number *n) { ld2450_.timeout_number = n; }
-  void set_ld2450_zone_coordinate_number(int zone, int coord, number::Number *n) {
-    if (zone < LD2450Handler::NUM_ZONES && coord < 4) ld2450_.zone_coords[zone][coord] = n;
+  void set_ld2450_zone_point_coord_number(int zone, int point, int axis, number::Number *n) {
+    if (zone < LD2450Handler::NUM_ZONES && point < LD2450Handler::MAX_ZONE_POINTS && axis < 2)
+      ld2450_.zone_point_coords[zone][point][axis] = n;
   }
+  void set_ld2450_zone_points_count_number(int zone, number::Number *n) {
+    if (zone < LD2450Handler::NUM_ZONES) ld2450_.zone_points_count[zone] = n;
+  }
+  void set_ld2450_excl_zone_point_coord_number(int point, int axis, number::Number *n) {
+    if (point < LD2450Handler::MAX_ZONE_POINTS && axis < 2)
+      ld2450_.excl_zone_point_coords[point][axis] = n;
+  }
+  void set_ld2450_excl_zone_points_count_number(number::Number *n) { ld2450_.excl_zone_points_count = n; }
+  void set_ld2450_detection_range_number(number::Number *n) { ld2450_.detection_range = n; }
 
   void set_ld2450_bluetooth_switch(switch_::Switch *s) { ld2450_.bluetooth_switch = s; }
   void set_ld2450_multi_target_switch(switch_::Switch *s) { ld2450_.multi_target_switch = s; }
+  void set_radar_tuner_switch(switch_::Switch *s) { tuner_switch_ = s; }
 
   void set_ld2450_baud_rate_select(select::Select *s) { ld2450_.baud_rate_select = s; }
-  void set_ld2450_zone_type_select(select::Select *s) { ld2450_.zone_type_select = s; }
 
+  void set_ld2410_version_text_sensor(text_sensor::TextSensor *s) { ld2410_.version_text_sensor = s; }
   void set_ld2450_version_text_sensor(text_sensor::TextSensor *s) { ld2450_.version_text_sensor = s; }
   void set_ld2450_mac_text_sensor(text_sensor::TextSensor *s) { ld2450_.mac_text_sensor = s; }
   void set_ld2450_target_direction_text_sensor(int target, text_sensor::TextSensor *s) {
     if (target < LD2450Handler::NUM_TARGETS) ld2450_.target_direction[target] = s;
   }
 
+  // --- Button entity setters ---
+  void set_factory_reset_button(button::Button *b) { factory_reset_button_ = b; }
+  void set_restart_button(button::Button *b) { restart_button_ = b; }
+  void set_query_params_button(button::Button *b) { query_params_button_ = b; }
+
   // --- Button action methods ---
   void factory_reset_radar();
   void restart_radar();
   void query_radar_params();
+
+  // --- Radar tuner server ---
+#ifdef USE_ESP_IDF
+  RadarTunerServer &get_tuner_server() { return tuner_server_; }
+  void start_tuner();
+  void stop_tuner();
+#endif
 
  protected:
   void finalize_detection_(RadarType type);
@@ -146,10 +170,22 @@ class Satellite1Radar : public Component, public uart::UARTDevice {
   binary_sensor::BinarySensor *moving_target_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *still_target_binary_sensor_{nullptr};
   text_sensor::TextSensor *radar_type_text_sensor_{nullptr};
+  // Button entities
+  button::Button *factory_reset_button_{nullptr};
+  button::Button *restart_button_{nullptr};
+  button::Button *query_params_button_{nullptr};
+
+  // Tuner switch (shared, dispatches based on detected radar type)
+  switch_::Switch *tuner_switch_{nullptr};
 
   // Protocol handlers
   LD2410Handler ld2410_{};
   LD2450Handler ld2450_{};
+
+#ifdef USE_ESP_IDF
+  RadarTunerServer tuner_server_{};
+  volatile bool write_config_pending_{false};
+#endif
 };
 
 }  // namespace satellite1_radar

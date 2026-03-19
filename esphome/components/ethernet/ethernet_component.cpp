@@ -246,7 +246,15 @@ void EthernetComponent::setup() {
   esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, this->phy_);
   this->eth_handle_ = nullptr;
   err = esp_eth_driver_install(&eth_config, &this->eth_handle_);
-  ESPHL_ERROR_CHECK(err, "ETH driver install error");
+  if (err != ESP_OK) {
+    if (err == ESP_ERR_INVALID_VERSION) {
+      ESP_LOGW(TAG, "Ethernet hardware (W5500) not detected - ethernet disabled");
+    } else {
+      ESP_LOGE(TAG, "ETH driver install error: (%d) %s", err, esp_err_to_name(err));
+    }
+    this->mark_failed();
+    return;
+  }
 
 #ifndef USE_ETHERNET_SPI
 #ifdef USE_ETHERNET_KSZ8081

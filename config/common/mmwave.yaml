@@ -22,11 +22,11 @@ satellite1_radar:
 binary_sensor:
   - platform: satellite1_radar
     has_target:
-      name: Presence
+      name: Room Presence
     has_moving_target:
-      name: Moving Target
+      name: Radar Target Moving
     has_still_target:
-      name: Still Target
+      name: Radar Target Still
 
 # ---------------------------------------------------------------------------
 # Text sensors
@@ -34,10 +34,10 @@ binary_sensor:
 text_sensor:
   - platform: satellite1_radar
     radar_type:
-      name: "Detected Radar"
-    # LD2450-specific
-    ld2450_version:
-      name: "LD2450 Firmware"
+      name: "Radar Detected"
+      entity_category: "diagnostic"
+    radar_firmware:
+      name: "Radar Firmware"
     ld2450_mac:
       name: "LD2450 BT MAC"
     target_1:
@@ -49,6 +49,13 @@ text_sensor:
     target_3:
       direction:
         name: "Target-3 Direction"
+    ld2450_zones:
+      zone_1:
+        name: "Radar Zone 1"
+      zone_2:
+        name: "Radar Zone 2"
+      zone_3:
+        name: "Radar Zone 3"
 
 # ---------------------------------------------------------------------------
 # Numeric sensors
@@ -58,76 +65,98 @@ sensor:
 
     # LD2410 sensors
     ld2410_moving_distance:
-      name: Moving Distance
+      name: Radar Moving Distance
     ld2410_still_distance:
-      name: Still Distance
+      name: Radar Still Distance
     ld2410_moving_energy:
-      name: Moving Energy
+      name: Radar Moving Energy
+      entity_category: "diagnostic"
       disabled_by_default: true
     ld2410_still_energy:
-      name: Still Energy
+      name: Radar Still Energy
+      entity_category: "diagnostic"
       disabled_by_default: true
     ld2410_detection_distance:
-      name: Detection Distance
+      name: Radar Detection Distance
+      entity_category: "diagnostic"
       disabled_by_default: true
     ld2410_light:
-      name: Illuminance Level
+      name: Radar Illuminance
+      entity_category: "diagnostic"
       disabled_by_default: true
 
     ld2410_gates:
       g0:
         move_energy:
-          name: g0 moving energy
+          name: Radar Gate-0 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g0 still energy
+          name: Radar Gate-0 Still Energy
+          entity_category: "diagnostic"
       g1:
         move_energy:
-          name: g1 moving energy
+          name: Radar Gate-1 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g1 still energy
+          name: Radar Gate-1 Still Energy
+          entity_category: "diagnostic"
       g2:
         move_energy:
-          name: g2 moving energy
+          name: Radar Gate-2 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g2 still energy
+          name: Radar Gate-2 Still Energy
+          entity_category: "diagnostic"
       g3:
         move_energy:
-          name: g3 moving energy
+          name: Radar Gate-3 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g3 still energy
+          name: Radar Gate-3 Still Energy
+          entity_category: "diagnostic"
       g4:
         move_energy:
-          name: g4 moving energy
+          name: Radar Gate-4 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g4 still energy
+          name: Radar Gate-4 Still Energy
+          entity_category: "diagnostic"
       g5:
         move_energy:
-          name: g5 moving energy
+          name: Radar Gate-5 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g5 still energy
+          name: Radar Gate-5 Still Energy
+          entity_category: "diagnostic"
       g6:
         move_energy:
-          name: g6 moving energy
+          name: Radar Gate-6 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g6 still energy
+          name: Radar Gate-6 Still Energy
+          entity_category: "diagnostic"
       g7:
         move_energy:
-          name: g7 moving energy
+          name: Radar Gate-7 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g7 still energy
+          name: Radar Gate-7 Still Energy
+          entity_category: "diagnostic"
       g8:
         move_energy:
-          name: g8 moving energy
+          name: Radar Gate-8 Moving Energy
+          entity_category: "diagnostic"
         still_energy:
-          name: g8 still energy
+          name: Radar Gate-8 Still Energy
+          entity_category: "diagnostic"
 
     # LD2450 sensors
     ld2450_target_count:
-      name: Presence Target Count
+      name: Radar Targets Total
     ld2450_still_target_count:
-      name: Still Target Count
+      name: Radar Targets Still
     ld2450_moving_target_count:
-      name: Moving Target Count
+      name: Radar Targets Moving
 
     ld2450_targets:
       target_1:
@@ -170,28 +199,6 @@ sensor:
         resolution:
           name: Target-3 Resolution
 
-    ld2450_zones:
-      zone_1:
-        target_count:
-          name: Zone-1 All Target Count
-        still_target_count:
-          name: Zone-1 Still Target Count
-        moving_target_count:
-          name: Zone-1 Moving Target Count
-      zone_2:
-        target_count:
-          name: Zone-2 All Target Count
-        still_target_count:
-          name: Zone-2 Still Target Count
-        moving_target_count:
-          name: Zone-2 Moving Target Count
-      zone_3:
-        target_count:
-          name: Zone-3 All Target Count
-        still_target_count:
-          name: Zone-3 Still Target Count
-        moving_target_count:
-          name: Zone-3 Moving Target Count
 
 # ---------------------------------------------------------------------------
 # Number entities (configuration)
@@ -201,94 +208,283 @@ number:
 
     # LD2410 numbers
     ld2410_timeout:
-      name: LD2410 Timeout
+      name: Radar Timeout
     ld2410_max_move_distance_gate:
-      name: Max Moving Distance Gate
+      name: Radar Max Moving Gate
     ld2410_max_still_distance_gate:
-      name: Max Still Distance Gate
+      name: Radar Max Still Gate
     ld2410_light_threshold:
-      name: Light Threshold
+      name: Radar Light Threshold
+      entity_category: "diagnostic"
       disabled_by_default: true
 
     ld2410_gates:
       g0:
         move_threshold:
-          name: g0 moving threshold
+          name: Radar Gate-0 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g0 still threshold
+          name: Radar Gate-0 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g1:
         move_threshold:
-          name: g1 moving threshold
+          name: Radar Gate-1 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g1 still threshold
+          name: Radar Gate-1 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g2:
         move_threshold:
-          name: g2 moving threshold
+          name: Radar Gate-2 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g2 still threshold
+          name: Radar Gate-2 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g3:
         move_threshold:
-          name: g3 moving threshold
+          name: Radar Gate-3 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g3 still threshold
+          name: Radar Gate-3 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g4:
         move_threshold:
-          name: g4 moving threshold
+          name: Radar Gate-4 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g4 still threshold
+          name: Radar Gate-4 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g5:
         move_threshold:
-          name: g5 moving threshold
+          name: Radar Gate-5 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g5 still threshold
+          name: Radar Gate-5 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g6:
         move_threshold:
-          name: g6 moving threshold
+          name: Radar Gate-6 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g6 still threshold
+          name: Radar Gate-6 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g7:
         move_threshold:
-          name: g7 moving threshold
+          name: Radar Gate-7 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g7 still threshold
+          name: Radar Gate-7 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
       g8:
         move_threshold:
-          name: g8 moving threshold
+          name: Radar Gate-8 Moving Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
         still_threshold:
-          name: g8 still threshold
+          name: Radar Gate-8 Still Threshold
+          entity_category: "diagnostic"
+          disabled_by_default: true
 
     # LD2450 numbers
+    ld2450_stability:
+      name: "Radar Stability"
+
     ld2450_timeout:
       name: "LD2450 Timeout"
 
+    ld2450_detection_range:
+      name: "Detection Range"
+
     ld2450_zones:
       zone_1:
-        x1:
-          name: Zone-1 X1
-        y1:
-          name: Zone-1 Y1
-        x2:
-          name: Zone-1 X2
-        y2:
-          name: Zone-1 Y2
+        points_count:
+          name: "Zone 1 Points Count"
+        p1:
+          x:
+            name: "Zone 1 P1 X"
+          y:
+            name: "Zone 1 P1 Y"
+        p2:
+          x:
+            name: "Zone 1 P2 X"
+          y:
+            name: "Zone 1 P2 Y"
+        p3:
+          x:
+            name: "Zone 1 P3 X"
+          y:
+            name: "Zone 1 P3 Y"
+        p4:
+          x:
+            name: "Zone 1 P4 X"
+          y:
+            name: "Zone 1 P4 Y"
+        p5:
+          x:
+            name: "Zone 1 P5 X"
+          y:
+            name: "Zone 1 P5 Y"
+        p6:
+          x:
+            name: "Zone 1 P6 X"
+          y:
+            name: "Zone 1 P6 Y"
+        p7:
+          x:
+            name: "Zone 1 P7 X"
+          y:
+            name: "Zone 1 P7 Y"
+        p8:
+          x:
+            name: "Zone 1 P8 X"
+          y:
+            name: "Zone 1 P8 Y"
       zone_2:
-        x1:
-          name: Zone-2 X1
-        y1:
-          name: Zone-2 Y1
-        x2:
-          name: Zone-2 X2
-        y2:
-          name: Zone-2 Y2
+        points_count:
+          name: "Zone 2 Points Count"
+        p1:
+          x:
+            name: "Zone 2 P1 X"
+          y:
+            name: "Zone 2 P1 Y"
+        p2:
+          x:
+            name: "Zone 2 P2 X"
+          y:
+            name: "Zone 2 P2 Y"
+        p3:
+          x:
+            name: "Zone 2 P3 X"
+          y:
+            name: "Zone 2 P3 Y"
+        p4:
+          x:
+            name: "Zone 2 P4 X"
+          y:
+            name: "Zone 2 P4 Y"
+        p5:
+          x:
+            name: "Zone 2 P5 X"
+          y:
+            name: "Zone 2 P5 Y"
+        p6:
+          x:
+            name: "Zone 2 P6 X"
+          y:
+            name: "Zone 2 P6 Y"
+        p7:
+          x:
+            name: "Zone 2 P7 X"
+          y:
+            name: "Zone 2 P7 Y"
+        p8:
+          x:
+            name: "Zone 2 P8 X"
+          y:
+            name: "Zone 2 P8 Y"
       zone_3:
-        x1:
-          name: Zone-3 X1
-        y1:
-          name: Zone-3 Y1
-        x2:
-          name: Zone-3 X2
-        y2:
-          name: Zone-3 Y2
+        points_count:
+          name: "Zone 3 Points Count"
+        p1:
+          x:
+            name: "Zone 3 P1 X"
+          y:
+            name: "Zone 3 P1 Y"
+        p2:
+          x:
+            name: "Zone 3 P2 X"
+          y:
+            name: "Zone 3 P2 Y"
+        p3:
+          x:
+            name: "Zone 3 P3 X"
+          y:
+            name: "Zone 3 P3 Y"
+        p4:
+          x:
+            name: "Zone 3 P4 X"
+          y:
+            name: "Zone 3 P4 Y"
+        p5:
+          x:
+            name: "Zone 3 P5 X"
+          y:
+            name: "Zone 3 P5 Y"
+        p6:
+          x:
+            name: "Zone 3 P6 X"
+          y:
+            name: "Zone 3 P6 Y"
+        p7:
+          x:
+            name: "Zone 3 P7 X"
+          y:
+            name: "Zone 3 P7 Y"
+        p8:
+          x:
+            name: "Zone 3 P8 X"
+          y:
+            name: "Zone 3 P8 Y"
+
+    ld2450_exclusion_zone:
+      points_count:
+        name: "Exclusion Zone Points Count"
+      p1:
+        x:
+          name: "Exclusion Zone P1 X"
+        y:
+          name: "Exclusion Zone P1 Y"
+      p2:
+        x:
+          name: "Exclusion Zone P2 X"
+        y:
+          name: "Exclusion Zone P2 Y"
+      p3:
+        x:
+          name: "Exclusion Zone P3 X"
+        y:
+          name: "Exclusion Zone P3 Y"
+      p4:
+        x:
+          name: "Exclusion Zone P4 X"
+        y:
+          name: "Exclusion Zone P4 Y"
+      p5:
+        x:
+          name: "Exclusion Zone P5 X"
+        y:
+          name: "Exclusion Zone P5 Y"
+      p6:
+        x:
+          name: "Exclusion Zone P6 X"
+        y:
+          name: "Exclusion Zone P6 Y"
+      p7:
+        x:
+          name: "Exclusion Zone P7 X"
+        y:
+          name: "Exclusion Zone P7 Y"
+      p8:
+        x:
+          name: "Exclusion Zone P8 X"
+        y:
+          name: "Exclusion Zone P8 Y"
 
 # ---------------------------------------------------------------------------
 # Switches
@@ -296,13 +492,20 @@ number:
 switch:
   - platform: satellite1_radar
     ld2410_engineering_mode:
-      name: "Engineering Mode"
+      name: "Radar Engineering Mode"
+      entity_category: "diagnostic"
     ld2410_bluetooth:
-      name: "Control Bluetooth"
+      name: "Radar LD2410 Bluetooth"
+      entity_category: "diagnostic"
     ld2450_bluetooth:
-      name: "Bluetooth"
+      name: "Radar LD2450 Bluetooth"
+      entity_category: "diagnostic"
     ld2450_multi_target:
-      name: "Multi Target Tracking"
+      name: "Radar Multi-Target Tracking"
+      entity_category: "diagnostic"
+    radar_tuner:
+      name: "Radar Tuner WebUI"
+      entity_category: "diagnostic"
 
 # ---------------------------------------------------------------------------
 # Selects
@@ -310,14 +513,14 @@ switch:
 select:
   - platform: satellite1_radar
     ld2410_distance_resolution:
-      name: Distance Resolution
+      name: Radar Distance Resolution
+      entity_category: "diagnostic"
     ld2410_light_function:
-      name: Light Function
+      name: Radar Light Function
+      entity_category: "diagnostic"
       disabled_by_default: true
     ld2450_baud_rate:
       name: "Baud Rate"
-    ld2450_zone_type:
-      name: "Zone Type"
 
 # ---------------------------------------------------------------------------
 # Buttons
@@ -326,10 +529,10 @@ button:
   - platform: satellite1_radar
     factory_reset:
       name: "Radar Factory Reset"
-      entity_category: "config"
+      entity_category: "diagnostic"
     restart:
       name: "Radar Restart"
-      entity_category: "config"
+      entity_category: "diagnostic"
     query_params:
       name: "Radar Update Sensors"
-      entity_category: "config"
+      entity_category: "diagnostic"

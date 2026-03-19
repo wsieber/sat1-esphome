@@ -39,11 +39,6 @@ CONF_ANGLE = "angle"
 CONF_DISTANCE = "distance"
 CONF_RESOLUTION = "resolution"
 
-CONF_LD2450_ZONES = "ld2450_zones"
-CONF_TARGET_COUNT = "target_count"
-CONF_STILL_TARGET_COUNT = "still_target_count"
-CONF_MOVING_TARGET_COUNT = "moving_target_count"
-
 _TARGET_SENSOR_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_X): sensor.sensor_schema(
@@ -81,25 +76,6 @@ _TARGET_SENSOR_SCHEMA = cv.Schema(
     }
 )
 
-_ZONE_SENSOR_SCHEMA = cv.Schema(
-    {
-        cv.Optional(CONF_TARGET_COUNT): sensor.sensor_schema(
-            accuracy_decimals=0,
-            state_class=STATE_CLASS_MEASUREMENT,
-            icon="mdi:account-multiple",
-        ),
-        cv.Optional(CONF_STILL_TARGET_COUNT): sensor.sensor_schema(
-            accuracy_decimals=0,
-            state_class=STATE_CLASS_MEASUREMENT,
-            icon="mdi:account",
-        ),
-        cv.Optional(CONF_MOVING_TARGET_COUNT): sensor.sensor_schema(
-            accuracy_decimals=0,
-            state_class=STATE_CLASS_MEASUREMENT,
-            icon="mdi:account-arrow-right",
-        ),
-    }
-)
 
 _GATE_SENSOR_SCHEMA = cv.Schema(
     {
@@ -179,9 +155,6 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_LD2450_TARGETS): cv.Schema(
             {cv.Optional(f"target_{i+1}"): _TARGET_SENSOR_SCHEMA for i in range(3)}
         ),
-        cv.Optional(CONF_LD2450_ZONES): cv.Schema(
-            {cv.Optional(f"zone_{i+1}"): _ZONE_SENSOR_SCHEMA for i in range(3)}
-        ),
     }
 )
 
@@ -245,18 +218,3 @@ async def to_code(config):
                         s = await sensor.new_sensor(tc[field])
                         cg.add(getattr(hub, setter_name)(i, s))
 
-    # LD2450 per-zone sensors
-    if CONF_LD2450_ZONES in config:
-        zones_conf = config[CONF_LD2450_ZONES]
-        for i in range(3):
-            zone_key = f"zone_{i+1}"
-            if zone_key in zones_conf:
-                zc = zones_conf[zone_key]
-                for field, setter_name in [
-                    (CONF_TARGET_COUNT, "set_ld2450_zone_target_count_sensor"),
-                    (CONF_STILL_TARGET_COUNT, "set_ld2450_zone_still_target_count_sensor"),
-                    (CONF_MOVING_TARGET_COUNT, "set_ld2450_zone_moving_target_count_sensor"),
-                ]:
-                    if field in zc:
-                        s = await sensor.new_sensor(zc[field])
-                        cg.add(getattr(hub, setter_name)(i, s))

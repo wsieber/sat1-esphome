@@ -19,17 +19,17 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FACTORY_RESET): button.button_schema(
             Satellite1RadarButton,
             icon="mdi:factory",
-            entity_category="config",
+            entity_category="diagnostic",
         ),
         cv.Optional(CONF_RESTART): button.button_schema(
             Satellite1RadarButton,
             icon="mdi:restart",
-            entity_category="config",
+            entity_category="diagnostic",
         ),
         cv.Optional(CONF_QUERY_PARAMS): button.button_schema(
             Satellite1RadarButton,
             icon="mdi:database-refresh",
-            entity_category="config",
+            entity_category="diagnostic",
         ),
     }
 )
@@ -42,13 +42,16 @@ async def to_code(config):
         b = await button.new_button(config[CONF_FACTORY_RESET])
         cg.add(b.set_parent(hub))
         cg.add(b.set_button_type(0))
+        cg.add(hub.set_factory_reset_button(b))
 
     if CONF_RESTART in config:
         b = await button.new_button(config[CONF_RESTART])
         cg.add(b.set_parent(hub))
         cg.add(b.set_button_type(1))
+        cg.add(hub.set_restart_button(b))
 
     if CONF_QUERY_PARAMS in config:
         b = await button.new_button(config[CONF_QUERY_PARAMS])
         cg.add(b.set_parent(hub))
         cg.add(b.set_button_type(2))
+        cg.add(hub.set_query_params_button(b))
