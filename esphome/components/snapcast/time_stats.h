@@ -223,7 +223,6 @@ class TimeStats {
   size_t min_valid_samples_;
   size_t window_size_;
 
-
   // ---------------- Flags/counters ----------------
   bool has_value_ = false;
   bool has_bias_ = false;
@@ -294,11 +293,10 @@ class TimeStats {
     if (!rtt_inited_)
       return static_cast<int64_t>(std::llround(floor_sigma));
 
-    const double rtt_sigma = static_cast<double>(last_rtt_us_) / 2.0;  
+    const double rtt_sigma = static_cast<double>(last_rtt_us_) / 2.0;
     const double sigma = std::max(floor_sigma, rtt_sigma);
     return static_cast<int64_t>(std::llround(std::max(10.0, sigma)));
   }
-
 
   // ---------------- Hybrid Kalman (offset + drift) ----------------
   bool kalman_init_ = false;

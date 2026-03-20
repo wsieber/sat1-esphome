@@ -256,7 +256,7 @@ int32_t TimedRingBuffer::read(void *data, size_t max_len, tv_t &stamp, TickType_
   if (max_len >= this->bytes_waiting_in_chunk) {
     std::memcpy(data, this->curr_chunk->data, this->bytes_waiting_in_chunk);
     stamp = this->curr_chunk->stamp;  // Copy the timestamp from the current chunk
-    vRingbufferReturnItem(this->handle_, this->curr_chunk);    
+    vRingbufferReturnItem(this->handle_, this->curr_chunk);
     this->curr_chunk = nullptr;
     this->bytes_available_ -= this->bytes_waiting_in_chunk;
     return this->bytes_waiting_in_chunk;
