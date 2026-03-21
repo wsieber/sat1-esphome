@@ -192,11 +192,19 @@ media_player:
       - script.execute: control_leds
     on_volume:
       - script.execute: control_leds
+      - if:
+          condition:
+            lambda: return id(voice_volume_level) > 0.0f;
+          then:
+            - script.execute: voice_volume_apply
 
     on_announcement:
+      - lambda: id(is_announcement_ducking) = true;
       - mixer_speaker.apply_ducking:
           id: media_mixing_input
-          decibel_reduction: 20
+          decibel_reduction: !lambda |-
+            int duck = id(voice_base_ducking) + 20;
+            return (uint8_t)(duck > 50 ? 50 : duck);
           duration: 0.0s
 
     on_state:
@@ -209,9 +217,10 @@ media_player:
             - not:
                 media_player.is_announcing:
         then:
+          - lambda: id(is_announcement_ducking) = false;
           - mixer_speaker.apply_ducking:
               id: media_mixing_input
-              decibel_reduction: 0
+              decibel_reduction: !lambda return (uint8_t)id(voice_base_ducking);
               duration: 1.0s
 
     files:
