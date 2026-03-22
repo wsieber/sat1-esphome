@@ -32,6 +32,8 @@ packages:
 
 logger:
   level: ${log_level}
+  logs:
+    ltr_als_ps: ERROR
 
 ## OPTIONALLY, enable transport encryption for the API layer by uncommenting the following lines
 ## and replacing "REPLACE_BY_32_BIT_RANDOM_KEY" with a 32-character random key.

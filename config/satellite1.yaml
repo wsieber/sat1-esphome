@@ -126,7 +126,7 @@ logger:
   hardware_uart: USB_SERIAL_JTAG
   level: debug
   logs:
-    ltr_als_ps: WARN
+    ltr_als_ps: ERROR
     text_sensor: WARN
     sensor: WARN
     binary_sensor: WARN
