@@ -37,9 +37,9 @@ script:
           if (esphome::wifi::global_wifi_component != nullptr) {
             auto wifi_ips = esphome::wifi::global_wifi_component->get_ip_addresses();
             for (auto &ip : wifi_ips) {
-              char ip_buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
-              ip.str_to(ip_buf);
-              if (ip_buf[0] != '\0' && strcmp(ip_buf, "0.0.0.0") != 0) {
+              if (ip.is_set() && ip != esphome::network::IPAddress(0, 0, 0, 0)) {
+                char ip_buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
+                ip.str_to(ip_buf);
                 id(network_status_str) = std::string("WiFi: ") + ip_buf;
                 return;
               }

@@ -2,6 +2,7 @@ ethernet:
   id: ethernet_id
   type: W5500
   spi_id: spi_0
+  interrupt_pin: GPIO38
   cs_pin:
     number: GPIO3
     ignore_strapping_warning: true 
@@ -23,14 +24,15 @@ script:
       - lambda: |-
           auto ips = id(ethernet_id).get_ip_addresses();
           for (auto &ip : ips) {
-            auto s = ip.str();
-            if (!s.empty() && s != "0.0.0.0") {
+            if (ip.is_set() && ip != esphome::network::IPAddress(0, 0, 0, 0)) {
+              char ip_buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
+              ip.str_to(ip_buf);
               auto speed = id(ethernet_id).get_link_speed() == ETH_SPEED_100M ? "100" : "10";
               auto duplex = id(ethernet_id).get_duplex_mode() == ETH_DUPLEX_FULL ? "Full" : "Half";
               char buf[96];
-              snprintf(buf, sizeof(buf), "Eth: %s\n%s Mbps %s Duplex", s.c_str(), speed, duplex);
+              snprintf(buf, sizeof(buf), "Eth: %s\n%s Mbps %s Duplex", ip_buf, speed, duplex);
               id(network_status_str) = std::string(buf);
-              return; 
+              return;
             }
           }
           id(network_status_str) = "Disconnected";
