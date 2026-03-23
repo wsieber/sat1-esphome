@@ -21,6 +21,18 @@ globals:
     type: int
     restore_value: no
     # initial_value: ${voice_assist_not_ready_phase_id}
+  - id: voice_base_ducking
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: voice_volume_level
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: is_announcement_ducking
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 microphone:
   - platform: satellite1
@@ -121,18 +133,20 @@ voice_assistant:
         then:
           - lambda: id(voice_assistant_phase) = ${voice_assist_error_phase_id};
           - script.execute: control_leds
-    # Stop ducking audio.
+    - lambda: id(is_announcement_ducking) = false;
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
-        decibel_reduction: 0   # 0 dB means no reduction
+        decibel_reduction: !lambda return (uint8_t)id(voice_base_ducking);
         duration: 1.0s
 
-  # When the voice assistant starts: Play a wake up sound, duck audio.
   on_start:
+    - lambda: id(is_announcement_ducking) = true;
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
-        decibel_reduction: 20   # Number of dB quieter; higher implies more quiet, 0 implies full volume
-        duration: 0.0s          # The duration of the transition (default is 0)
+        decibel_reduction: !lambda |-
+          int duck = id(voice_base_ducking) + 20;
+          return (uint8_t)(duck > 50 ? 50 : duck);
+        duration: 0.0s
   on_listening:
     - lambda: id(voice_assistant_phase) = ${voice_assist_waiting_for_command_phase_id};
     - script.execute: control_leds
@@ -167,10 +181,10 @@ voice_assistant:
     - wait_until:
         not:
           voice_assistant.is_running:
-    # Stop ducking audio.
+    - lambda: id(is_announcement_ducking) = false;
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
-        decibel_reduction: 0   # 0 dB means no reduction
+        decibel_reduction: !lambda return (uint8_t)id(voice_base_ducking);
         duration: 1.0s
     # Stop the script that would potentially enable the stop word if the response is longer than a second
     - script.stop: activate_stop_word_if_tts_step_is_long
@@ -230,7 +244,79 @@ script:
                 then:
                   - micro_wake_word.disable_model: stop
 
+  - id: voice_volume_apply
+    mode: restart
+    then:
+      - lambda: |-
+          float media_vol = id(external_media_player)->volume;
+          float voice_vol = id(voice_volume_level);
+          int new_ducking = 0;
+          if (voice_vol > media_vol) {
+            float db = 31.5f * (voice_vol - media_vol);
+            new_ducking = (int)(db + 0.5f);
+            if (new_ducking > 50) new_ducking = 50;
+          }
+          int old_ducking = id(voice_base_ducking);
+          id(voice_base_ducking) = new_ducking;
+
+          if (new_ducking <= old_ducking) {
+            if (voice_vol > media_vol) {
+              id(dac_proxy).set_volume(0.1f + voice_vol * 0.9f);
+            } else {
+              id(dac_proxy).set_volume(0.1f + media_vol * 0.9f);
+            }
+          }
+      - mixer_speaker.apply_ducking:
+          id: media_mixing_input
+          decibel_reduction: !lambda |-
+            int duck = id(voice_base_ducking);
+            if (id(is_announcement_ducking)) duck += 20;
+            return (uint8_t)(duck > 50 ? 50 : duck);
+          duration: 0.0s
+      - if:
+          condition:
+            lambda: |-
+              float media_vol = id(external_media_player)->volume;
+              float voice_vol = id(voice_volume_level);
+              float target = (voice_vol > media_vol)
+                ? (0.1f + voice_vol * 0.9f) : (0.1f + media_vol * 0.9f);
+              return target > id(dac_proxy).volume() + 0.005f;
+          then:
+            - delay: 800ms
+            - lambda: |-
+                float media_vol = id(external_media_player)->volume;
+                float voice_vol = id(voice_volume_level);
+                if (voice_vol > media_vol) {
+                  id(dac_proxy).set_volume(0.1f + voice_vol * 0.9f);
+                } else {
+                  id(dac_proxy).set_volume(0.1f + media_vol * 0.9f);
+                }
+
 select:
+  - platform: template
+    id: voice_volume_override
+    name: "Voice Volume Override"
+    icon: "mdi:account-voice"
+    optimistic: true
+    initial_option: "Off"
+    restore_value: true
+    entity_category: config
+    options:
+      - "Off"
+      - "Low"
+      - "Medium"
+      - "High"
+      - "Maximum"
+    on_value:
+      - lambda: |-
+          float vol = 0.0f;
+          if (x == "Low") vol = 0.4f;
+          else if (x == "Medium") vol = 0.6f;
+          else if (x == "High") vol = 0.8f;
+          else if (x == "Maximum") vol = 1.0f;
+          id(voice_volume_level) = vol;
+      - script.execute: voice_volume_apply
+
   - platform: template
     id: mww_sensitivity_select
     name: "Wake word sensitivity"
