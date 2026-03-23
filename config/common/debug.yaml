@@ -198,6 +198,7 @@ esphome:
           <input type="text" id="log-highlight" placeholder="Highlight..." oninput="renderLogs()">
           <button class="btn btn-gray" id="log-pause-btn" onclick="toggleLogPause()">Pause</button>
           <button class="btn btn-gray" onclick="clearLogs()">Clear</button>
+          <button class="btn btn-blue" onclick="downloadLogs()">Download</button>
           <span class="log-count" id="log-count">0 lines</span>
           </div>
           <div id="log-output"></div>
@@ -526,6 +527,67 @@ esphome:
             logBuf=[];
             document.getElementById('log-output').innerHTML='';
             document.getElementById('log-count').textContent='0 lines';
+          }
+          function T(id){var e=document.getElementById(id);return e?e.textContent.trim():'--'}
+          function swState(name){var cb=document.getElementById('sw-'+name.replace(/\s+/g,'_'));return cb?cb.checked?'ON':'OFF':'--'}
+          function selState(name){var ds=dynSelects[name];return ds&&ds.el?ds.el.value:'--'}
+          function numState(name){var inp=document.getElementById('num-'+name.replace(/\s+/g,'_'));return inp?inp.value:'--'}
+          function downloadLogs(){
+            var ts=new Date().toISOString();
+            var devName=T('s-devname')||'device';
+            var hdr='===============================================================\n'
+              +' '+devName+' - Debug Log Dump\n'
+              +' Generated: '+ts+'\n'
+              +'===============================================================\n\n'
+              +'--- Device Info ---\n'
+              +'  Device Name:        '+devName+'\n'
+              +'  Firmware:           '+T('s-fw')+'\n'
+              +'  XMOS Firmware:      '+T('s-xmos-fw')+'\n'
+              +'  MAC Address:        '+T('s-mac')+'\n'
+              +'  Network IP:         '+T('s-netip')+'\n'
+              +'  WiFi Strength:      '+T('s-wifi')+'\n'
+              +'  USB-C Power Supply: '+T('s-usbc')+'\n'
+              +'  Reset Reason:       '+T('s-reset')+'\n'
+              +'  Line-Out Connected: '+T('s-lineout-stat')+'\n\n'
+              +'--- System Resources ---\n'
+              +'  Heap Free:          '+T('s-heap')+'\n'
+              +'  PSRAM Free:         '+T('s-psram')+'\n'
+              +'  Internal ESP Temp:  '+T('s-esptemp')+'\n'
+              +'  Loop Time:          '+T('s-loop')+'\n\n'
+              +'--- Environment Sensors ---\n'
+              +'  Room Temperature:   '+T('s-temp-room')+'\n'
+              +'  Room Humidity:      '+T('s-hum')+'\n'
+              +'  Room Luminosity:    '+T('s-lux')+'\n\n'
+              +'--- Voice Assistant ---\n'
+              +'  Satellite State:    '+T('s-va-state')+'\n'
+              +'  Mute Microphones:   '+swState('Mute Microphones')+'\n'
+              +'  Wake Sound:         '+swState('Wake sound')+'\n'
+              +'  Wake Sensitivity:   '+selState('Wake word sensitivity')+'\n'
+              +'  Volume Override:    '+selState('Voice Volume Override')+'\n'
+              +'  Speaker Output:     '+selState('Speaker channel output')+'\n\n'
+              +'--- Wake Words ---\n'
+              +'  Hey Jarvis:         '+swState('Hey Jarvis')+'\n'
+              +'  Okay Nabu:          '+swState('Okay Nabu')+'\n\n'
+              +'--- Device Settings ---\n'
+              +'  Snapcast:           '+swState('Snapcast')+'\n'
+              +'  Offset Temperature: '+numState('Offset Temperature')+'\n'
+              +'  Offset Temp Unit:   '+selState('Offset Temperature Unit')+'\n'
+              +'  Offset Humidity:    '+numState('Offset Humidity')+'\n'
+              +'  Offset Luminosity:  '+numState('Offset Luminosity')+'\n\n'
+              +'===============================================================\n'
+              +' LOG OUTPUT ('+logBuf.length+' lines)\n'
+              +'===============================================================\n\n';
+            var logs=logBuf.map(function(e){return e.text}).join('\n');
+            var blob=new Blob([hdr+logs+'\n'],{type:'text/plain'});
+            var name=devName.replace(/\s+/g,'_').toLowerCase()+'-logs-'
+              +ts.replace(/[:.]/g,'-').slice(0,19)+'.txt';
+            var a=document.createElement('a');
+            a.href=URL.createObjectURL(blob);
+            a.download=name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
           }
 
           </script></body></html>)DBGHTML";
