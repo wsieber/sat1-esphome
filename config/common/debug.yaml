@@ -1,13 +1,8 @@
-external_components:
-  - source:
-      type: git
-      url: https://github.com/FutureProofHomes/Satellite1-ESPHome
-      ref: develop
-    refresh: 1s
-    components: [version]
-
 debug:
   update_interval: 5s
+
+web_server:
+  port: 8080
 
 # # OPTIONAL Persist logs to a an MQTT broker so you can go back in time and inspect them.  Read more here: https://esphome.io/components/mqtt.html
 # mqtt:
@@ -16,6 +11,662 @@ debug:
 #   username: <mqtt_username_here>
 #   password: <mqtt_password_here>
 #   # topic_prefix: <set_this_if_you_are_logging_multiple_satellite1_devices>
+
+esphome:
+  on_loop:
+    then:
+      - lambda: |-
+          static bool debug_initialized = false;
+          if (debug_initialized) return;
+          auto *wbase = web_server_base::global_web_server_base;
+          if (!wbase || !wbase->get_server()) return;
+          debug_initialized = true;
+
+          id(total_heap_sensor).publish_state(heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+          id(total_psram_sensor).publish_state(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+          id(mac_address_text).publish_state(get_mac_address_pretty());
+          id(pd_state_text).update();
+
+          // ---------------------------------------------------------------
+          // Ring buffer for network mic streaming (SPSC, lock-free)
+          // ---------------------------------------------------------------
+          static const size_t RING_SZ = 32768;
+          static uint8_t *s_ring = nullptr;
+          static volatile size_t s_wr = 0;
+          static volatile size_t s_rd = 0;
+
+          if (!s_ring) {
+            s_ring = (uint8_t *)heap_caps_calloc(1, RING_SZ, MALLOC_CAP_SPIRAM);
+            if (!s_ring) {
+              ESP_LOGE("debug", "Failed to allocate mic stream ring buffer");
+              return;
+            }
+          }
+
+          // ---------------------------------------------------------------
+          // Debug dashboard HTML (served at /debug on port 8080)
+          // ---------------------------------------------------------------
+          static const char DEBUG_HTML[] PROGMEM = R"DBGHTML(<!DOCTYPE html>
+          <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>${friendly_name} Debug Dashboard</title>
+          <style>
+          *{box-sizing:border-box;margin:0;padding:0}
+          body{font-family:-apple-system,system-ui,sans-serif;background:#111;color:#e0e0e0;padding:16px;margin:0 auto}
+          h1{font-size:1.3em;margin-bottom:12px;color:#7eb8f7}
+          .card{background:#1a1a2e;border-radius:8px;padding:14px;margin-bottom:12px}
+          .card h2{font-size:1em;margin-bottom:10px;color:#a0b4cc}
+          label{display:block;font-size:.85em;color:#8899aa;margin-bottom:4px}
+          select,input[type=range],input[type=number],input[type=color]{width:100%;margin-bottom:8px;accent-color:#7eb8f7}
+          select,input[type=number]{background:#222;color:#ddd;border:1px solid #333;padding:6px;border-radius:4px}
+          input[type=color]{height:32px;padding:2px;background:#222;border:1px solid #333;border-radius:4px}
+          .btn{display:inline-block;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;font-size:.85em;margin:3px}
+          .btn-blue{background:#2563eb;color:#fff}.btn-blue:hover{background:#1d4ed8}
+          .btn-red{background:#dc2626;color:#fff}.btn-red:hover{background:#b91c1c}
+          .btn-gray{background:#374151;color:#ddd}.btn-gray:hover{background:#4b5563}
+          .btn-green{background:#16a34a;color:#fff}.btn-green:hover{background:#15803d}
+          .btn-orange{background:#d97706;color:#fff}.btn-orange:hover{background:#b45309}
+          .meter{height:8px;background:#222;border-radius:4px;overflow:hidden;margin:6px 0}
+          .meter-fill{height:100%;background:#22c55e;transition:width .1s}
+          .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+          .stat{background:#111;border-radius:4px;padding:8px}
+          .stat .val{font-size:1.1em;font-weight:600;color:#7eb8f7}
+          .stat .lbl{font-size:.75em;color:#667}
+          #audio-status{font-size:.8em;color:#888;margin-top:4px}
+          .btn-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+          .ctrl-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+          .ctrl-row>label:first-child{margin:0;min-width:140px;flex-shrink:0}
+          .ctrl-row select,.ctrl-row input[type=number]{flex:1;margin:0}
+          .sw-toggle{position:relative;display:inline-block;width:42px;min-width:42px;max-width:42px;height:24px;flex-shrink:0;flex-grow:0}
+          .sw-toggle input{opacity:0;width:0;height:0}
+          .sw-toggle .slider{position:absolute;cursor:pointer;inset:0;background:#374151;border-radius:12px;transition:.2s}
+          .sw-toggle .slider:before{content:'';position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+          .sw-toggle input:checked+.slider{background:#16a34a}
+          .sw-toggle input:checked+.slider:before{transform:translateX(18px)}
+          .led-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+          .led-row input[type=range]{flex:1;margin:0}
+          .led-row input[type=color]{width:42px;height:32px;flex-shrink:0;margin:0}
+          .two-col{display:flex;gap:16px;align-items:flex-start}
+          .left-col{flex:1;max-width:720px;min-width:0}
+          .log-col{flex:1;min-width:380px;position:sticky;top:16px}
+          .log-card{background:#1a1a2e;border-radius:8px;padding:14px;display:flex;flex-direction:column;height:calc(100vh - 80px)}
+          .log-card h2{font-size:1em;margin-bottom:10px;color:#a0b4cc}
+          .log-toolbar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center}
+          .log-toolbar select,.log-toolbar input[type=text]{background:#222;color:#ddd;border:1px solid #333;padding:4px 6px;border-radius:4px;font-size:.8em}
+          .log-toolbar select{width:auto;margin:0}
+          .log-toolbar input[type=text]{flex:1;min-width:80px;margin:0}
+          .log-toolbar .btn{padding:4px 10px;margin:0;font-size:.75em}
+          #log-output{flex:1;overflow-y:auto;background:#0a0a0a;border-radius:4px;padding:8px;font-family:'SF Mono',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;line-height:1.4;white-space:pre-wrap;word-break:break-all}
+          #log-output .log-line{padding:1px 0}
+          .log-e{color:#ef4444}.log-w{color:#eab308}.log-i{color:#22c55e}.log-d{color:#9ca3af}.log-v{color:#6b7280}
+          #log-output mark{background:#7c3aed;color:#fff;border-radius:2px;padding:0 1px}
+          .log-count{font-size:.75em;color:#667;margin-left:auto}
+          @media(max-width:1100px){.two-col{flex-direction:column}.log-col{position:static;min-width:0}.log-card{height:50vh}}
+          </style></head><body>
+          <h1>${friendly_name} Debug Dashboard</h1>
+          <div class="two-col">
+          <div class="left-col">
+
+          <div class="card"><h2>Audio Monitor</h2>
+          <button class="btn btn-green" id="btn-stream" onclick="toggleStream()">Stream to Browser</button>
+          <button class="btn btn-orange" id="btn-lineout" onclick="toggleSwitch('Mic Monitor (Line-Out)')">Stream to Line-Out</button>
+          <span style="font-size:.8em;margin-left:6px" id="s-lineout"></span>
+          <div class="meter"><div class="meter-fill" id="level" style="width:0%"></div></div>
+          <div id="audio-status">Idle</div>
+          <label style="margin-top:8px">Channel</label>
+          <select id="sel-ch" onchange="setSelect('Mic Monitor Channel',this.value)">
+          <option>Ch 0 - Voice Assistant</option><option>Ch 1 - Wake Word</option><option>Both (Mono Mix)</option></select>
+          <label>Wake Word Mic Gain: <span id="gain-val">6</span></label>
+          <input type="range" min="1" max="64" value="6" id="sl-gain" oninput="document.getElementById('gain-val').textContent=this.value" onchange="setNumber('Wake Word Mic Gain',this.value)">
+          </div>
+
+          <div class="card"><h2>LED Ring</h2>
+          <div class="ctrl-row">
+          <label>LED Power</label>
+          <label class="sw-toggle"><input type="checkbox" id="led-toggle" onchange="setLed()"><span class="slider"></span></label>
+          </div>
+          <div class="led-row">
+          <label style="min-width:80px;margin:0">Brightness</label>
+          <input type="range" min="0" max="255" value="128" id="led-bright" onchange="setLed()">
+          <input type="color" value="#ffffff" id="led-color" onchange="setLed()">
+          </div>
+          <label style="margin-top:4px">Animation Test</label>
+          <select id="sel-led" onchange="setSelect('LED Animation Test',this.value)">
+          <option>Normal</option><option>Waiting for Command</option><option>Listening for Command</option>
+          <option>Thinking</option><option>Replying</option><option>Error</option></select>
+          </div>
+
+          <div class="card"><h2>Environment</h2>
+          <div class="stats-grid">
+          <div class="stat"><div class="val" id="s-temp-room">--</div><div class="lbl">Room Temperature</div></div>
+          <div class="stat"><div class="val" id="s-hum">--</div><div class="lbl">Room Humidity</div></div>
+          <div class="stat"><div class="val" id="s-lux">--</div><div class="lbl">Room Luminosity</div></div>
+          </div></div>
+
+          <div class="card"><h2>Voice Assistant</h2>
+          <div class="stats-grid" style="margin-bottom:10px">
+          <div class="stat" style="grid-column:1/-1"><div class="val" id="s-va-state">--</div><div class="lbl">Assist Satellite State</div></div>
+          </div>
+          <div id="va-wakewords"></div>
+          <div id="va-selects"></div>
+          </div>
+
+          <div class="card"><h2>Device Settings</h2>
+          <div id="device-settings"></div>
+          </div>
+
+          <div class="card"><h2>Device Stats</h2>
+          <div class="stats-grid">
+          <div class="stat"><div class="val" id="s-heap">--</div><div class="lbl">Heap Free</div></div>
+          <div class="stat"><div class="val" id="s-psram">--</div><div class="lbl">PSRAM Free</div></div>
+          <div class="stat"><div class="val" id="s-loop">--</div><div class="lbl">Loop Time</div></div>
+          <div class="stat"><div class="val" id="s-esptemp">--</div><div class="lbl">Internal ESP Temp</div></div>
+          <div class="stat"><div class="val" id="s-fw">--</div><div class="lbl">Firmware</div></div>
+          <div class="stat"><div class="val" id="s-reset">--</div><div class="lbl">Reset Reason</div></div>
+          <div class="stat"><div class="val" id="s-netip">--</div><div class="lbl">Network IP</div></div>
+          <div class="stat"><div class="val" id="s-mac">--</div><div class="lbl">MAC Address</div></div>
+          <div class="stat"><div class="val" id="s-usbc">--</div><div class="lbl">USB-C Power Supply</div></div>
+          <div class="stat"><div class="val" id="s-wifi">--</div><div class="lbl">WiFi Strength</div></div>
+          <div class="stat"><div class="val" id="s-lineout-stat">--</div><div class="lbl">Line-Out Connected</div></div>
+          </div></div>
+
+          <div class="card"><h2>XMOS</h2>
+          <div class="stats-grid" style="margin-bottom:10px">
+          <div class="stat" style="grid-column:1/-1"><div class="val" id="s-xmos-fw">--</div><div class="lbl">XMOS Firmware</div></div>
+          </div>
+          <div class="btn-row">
+          <button class="btn btn-gray" onclick="pressButton('XMOS Hardware Reset')">XMOS Reset</button>
+          <button class="btn btn-blue" onclick="pressButton('XMOS Flash Embedded FW')">Flash Embedded FW</button>
+          <button class="btn btn-red" onclick="pressButton('XMOS Erase Chip')">Erase XMOS</button>
+          </div></div>
+
+          <div class="card"><h2>System</h2>
+          <div class="btn-row">
+          <button class="btn btn-gray" onclick="pressButton('Satellite1 Restart')">Restart</button>
+          <button class="btn btn-gray" onclick="pressButton('Satellite1 Restart (Safe Mode)')">Safe Mode Restart</button>
+          </div>
+          <p style="margin-top:10px;font-size:.75em;color:#555">ESPHome UI: <a href="/" style="color:#7eb8f7">port 8080</a></p>
+          </div>
+          </div>
+          <div class="log-col">
+          <div class="log-card"><h2>Device Logs</h2>
+          <div class="log-toolbar">
+          <select id="log-level" onchange="renderLogs()"><option value="">All</option><option value="E">Error</option><option value="W">Warning</option><option value="I">Info</option><option value="D">Debug</option><option value="V">Verbose</option></select>
+          <input type="text" id="log-filter" placeholder="Filter..." oninput="renderLogs()">
+          <button class="btn btn-gray" id="log-mode-btn" onclick="toggleFilterMode()">Show</button>
+          <input type="text" id="log-highlight" placeholder="Highlight..." oninput="renderLogs()">
+          <button class="btn btn-gray" id="log-pause-btn" onclick="toggleLogPause()">Pause</button>
+          <button class="btn btn-gray" onclick="clearLogs()">Clear</button>
+          <span class="log-count" id="log-count">0 lines</span>
+          </div>
+          <div id="log-output"></div>
+          </div>
+          </div>
+          </div>
+
+          <script>
+          var API='';
+          var AUDIO_URL='http://'+location.hostname+':8081/mic_stream';
+          var streaming=false,abortCtrl=null,audioCtx=null;
+
+          function setStatus(t){document.getElementById('audio-status').textContent=t}
+          function setLevel(p){document.getElementById('level').style.width=Math.min(100,p)+'%';
+            document.getElementById('level').style.background=p>90?'#ef4444':p>60?'#eab308':'#22c55e'}
+
+          function E(s){return encodeURIComponent(s)}
+          function sw(name,action){fetch(API+'/switch/'+E(name)+'/'+action,{method:'POST'}).catch(function(){})}
+          function toggleSwitch(name){fetch(API+'/switch/'+E(name)+'/toggle',{method:'POST'}).catch(function(){})}
+          function toggleStream(){
+            if(streaming){stopStream();return}
+            streaming=true;
+            document.getElementById('btn-stream').textContent='Stop Streaming';
+            document.getElementById('btn-stream').className='btn btn-red';
+            setStatus('Enabling stream...');
+            sw('Mic Monitor (Network Stream)','turn_on');
+            setTimeout(function(){setStatus('Connecting...');startAudio().catch(function(e){setStatus('Error: '+e.message);stopStream()})},300);
+          }
+          function stopStream(){
+            streaming=false;
+            if(abortCtrl){abortCtrl.abort();abortCtrl=null}
+            if(audioCtx){audioCtx.close();audioCtx=null}
+            sw('Mic Monitor (Network Stream)','turn_off');
+            document.getElementById('btn-stream').textContent='Stream to Browser';
+            document.getElementById('btn-stream').className='btn btn-green';
+            setStatus('Idle');setLevel(0);
+          }
+          function startAudio(){
+            audioCtx=new AudioContext({sampleRate:16000});
+            abortCtrl=new AbortController();
+            return fetch(AUDIO_URL,{signal:abortCtrl.signal}).then(function(resp){
+            if(!resp.ok)throw new Error('HTTP '+resp.status);
+            var reader=resp.body.getReader();
+            var nextTime=0,hdrSkipped=false,hdrBuf=new Uint8Array(0);
+            setStatus('Streaming...');
+            function pump(){
+              if(!streaming)return;
+              reader.read().then(function(r){
+              if(r.done||!streaming)return;
+              var pcm=r.value;
+              if(!hdrSkipped){
+                var c=new Uint8Array(hdrBuf.length+pcm.length);c.set(hdrBuf);c.set(pcm,hdrBuf.length);
+                if(c.length<44){hdrBuf=c;pump();return}
+                pcm=c.slice(44);hdrSkipped=true;if(!pcm.length){pump();return}
+              }
+              if(pcm.byteLength%2!==0)pcm=pcm.slice(0,pcm.byteLength-1);
+              if(!pcm.length){pump();return}
+              var i16=new Int16Array(pcm.buffer,pcm.byteOffset,pcm.byteLength/2);
+              var f32=new Float32Array(i16.length);var peak=0;
+              for(var i=0;i<i16.length;i++){f32[i]=i16[i]/32768;var a=Math.abs(f32[i]);if(a>peak)peak=a}
+              setLevel(peak*100);
+              var buf=audioCtx.createBuffer(1,f32.length,16000);buf.getChannelData(0).set(f32);
+              var src=audioCtx.createBufferSource();src.buffer=buf;src.connect(audioCtx.destination);
+              var now=audioCtx.currentTime;if(nextTime<now+0.01)nextTime=now+0.05;
+              src.start(nextTime);nextTime+=buf.duration;pump();
+              }).catch(function(){});
+            }
+            pump();
+            });
+          }
+          function setSelect(name,val){fetch(API+'/select/'+E(name)+'/set?option='+E(val),{method:'POST'}).catch(function(){})}
+          function setNumber(name,val){fetch(API+'/number/'+E(name)+'/set?value='+val,{method:'POST'}).catch(function(){})}
+          function pressButton(name){fetch(API+'/button/'+E(name)+'/press',{method:'POST'}).catch(function(){})}
+          function setLed(){
+            var on=document.getElementById('led-toggle').checked;
+            if(!on){fetch(API+'/light/'+E('LED Ring')+'/turn_off',{method:'POST'}).catch(function(){});return}
+            var b=parseInt(document.getElementById('led-bright').value);
+            var hex=document.getElementById('led-color').value;
+            var r=parseInt(hex.substr(1,2),16),g=parseInt(hex.substr(3,2),16),bl=parseInt(hex.substr(5,2),16);
+            fetch(API+'/light/'+E('LED Ring')+'/turn_on?brightness='+b+'&r='+r+'&g='+g+'&b='+bl,{method:'POST'}).catch(function(){});
+          }
+
+          var totalHeap=0,totalPsram=0,freeHeap=0,freePsram=0;
+          function updMem(elId,free,total){
+            var kb=(free/1024).toFixed(0);
+            if(total>0){var pct=(free/total*100).toFixed(1);
+              document.getElementById(elId).textContent=kb+' kB ('+pct+'% free)'}
+            else{document.getElementById(elId).textContent=kb+' kB'}}
+          function fmtTemp(c){
+            var cv=parseFloat(c),f=(cv*9/5+32).toFixed(1);
+            return cv.toFixed(1)+' \u00B0C / '+f+' \u00B0F';}
+
+          var vaSelects=['Wake word sensitivity','Voice Volume Override','Speaker channel output'];
+          var deviceSettings=['Offset Temperature','Offset Temperature Unit','Offset Humidity','Offset Luminosity'];
+          var vaSwitches=['Mute Microphones','Wake sound'];
+          var vaWakeWordSwitches=['Hey Jarvis','Okay Nabu'];
+          var deviceSwitches=['Snapcast'];
+          var switchToggles=vaSwitches.concat(deviceSwitches).concat(vaWakeWordSwitches);
+          var dynSelects={};
+          function buildDynSelect(container,name){
+            if(dynSelects[name])return;
+            var row=document.createElement('div');row.className='ctrl-row';
+            var lbl=document.createElement('label');lbl.textContent=name;
+            var sel=document.createElement('select');
+            sel.id='dyn-'+name.replace(/\s+/g,'_');
+            sel.onchange=function(){setSelect(name,this.value)};
+            row.appendChild(lbl);row.appendChild(sel);
+            document.getElementById(container).appendChild(row);
+            dynSelects[name]={el:sel,opts:[]};
+          }
+          function buildDynNumber(container,name){
+            var key='num-'+name.replace(/\s+/g,'_');
+            if(document.getElementById(key))return;
+            var row=document.createElement('div');row.className='ctrl-row';
+            var lbl=document.createElement('label');lbl.textContent=name;
+            var inp=document.createElement('input');inp.type='number';inp.id=key;inp.step='any';
+            inp.onchange=function(){setNumber(name,this.value)};
+            row.appendChild(lbl);row.appendChild(inp);
+            document.getElementById(container).appendChild(row);
+          }
+          function buildDynSwitch(container,name){
+            var key='sw-'+name.replace(/\s+/g,'_');
+            if(document.getElementById(key))return;
+            var row=document.createElement('div');row.className='ctrl-row';
+            var lbl=document.createElement('label');lbl.textContent=name;
+            var tog=document.createElement('label');tog.className='sw-toggle';
+            var cb=document.createElement('input');cb.type='checkbox';cb.id=key;
+            cb.onchange=function(){sw(name,this.checked?'turn_on':'turn_off')};
+            var sl=document.createElement('span');sl.className='slider';
+            tog.appendChild(cb);tog.appendChild(sl);
+            row.appendChild(lbl);row.appendChild(tog);
+            document.getElementById(container).appendChild(row);
+          }
+          function updDynSelect(name,val,options){
+            var ds=dynSelects[name];if(!ds)return;
+            if(options&&options.length&&JSON.stringify(options)!==JSON.stringify(ds.opts)){
+              ds.opts=options;ds.el.innerHTML='';
+              options.forEach(function(o){var opt=document.createElement('option');opt.value=o;opt.textContent=o;ds.el.appendChild(opt)});
+            }
+            if(val)ds.el.value=val;
+          }
+
+          var sseTextMap={'text_sensor-firmware_version':'s-fw','text_sensor-reset_reason':'s-reset',
+            'text_sensor-network_ip':'s-netip','text_sensor-usb_c_power_supply':'s-usbc',
+            'text_sensor-assist_satellite_state':'s-va-state','text_sensor-xmos_firmware':'s-xmos-fw',
+            'text_sensor-mac_address':'s-mac'};
+
+          try{
+            var es=new EventSource(API+'/events');
+            es.addEventListener('state',function(e){
+              var d=JSON.parse(e.data);
+              var v=d.value||d.state;
+              var eid=d.id;
+              if(eid==='sensor-total_heap'){totalHeap=parseFloat(v);updMem('s-heap',freeHeap,totalHeap)}
+              else if(eid==='sensor-total_psram'){totalPsram=parseFloat(v);updMem('s-psram',freePsram,totalPsram)}
+              else if(eid==='sensor-heap_free'){freeHeap=parseFloat(v);updMem('s-heap',freeHeap,totalHeap)}
+              else if(eid==='sensor-free_psram'){freePsram=parseFloat(v);updMem('s-psram',freePsram,totalPsram)}
+              else if(eid==='sensor-internal_esp_temperature'){document.getElementById('s-esptemp').textContent=fmtTemp(v)}
+              else if(eid==='sensor-room_temperature'){document.getElementById('s-temp-room').textContent=fmtTemp(v)}
+              else if(eid==='sensor-room_humidity'){document.getElementById('s-hum').textContent=parseFloat(v).toFixed(1)+' %'}
+              else if(eid==='sensor-room_luminosity'){document.getElementById('s-lux').textContent=parseFloat(v).toFixed(0)+' lx'}
+              else if(eid==='sensor-wi_fi_signal_strength'){document.getElementById('s-wifi').textContent=v+' dBm'}
+              else if(eid==='sensor-loop_time'){document.getElementById('s-loop').textContent=v}
+              else if(eid==='binary_sensor-line_out_connected'){
+                var con=(v==='ON'||v===true||v==='true');
+                document.getElementById('s-lineout-stat').textContent=con?'Yes':'No';
+                document.getElementById('s-lineout').textContent=con?'(jack connected)':'(no jack)';
+              }
+              else if(sseTextMap[eid]){document.getElementById(sseTextMap[eid]).textContent=v||'--'}
+              else{
+                var prefix=eid.split('-')[0],ename=eid.substring(prefix.length+1).replace(/_/g,' ');
+                var matchName=null;
+                vaSelects.concat(deviceSettings).forEach(function(n){if(n.toLowerCase()===ename.toLowerCase())matchName=n});
+                if(prefix==='select'&&matchName){
+                  var cont=vaSelects.indexOf(matchName)>=0?'va-selects':'device-settings';
+                  buildDynSelect(cont,matchName);
+                  updDynSelect(matchName,v,d.option||d.options);
+                }
+                switchToggles.forEach(function(n){
+                  if(prefix==='switch'&&n.toLowerCase()===ename.toLowerCase()){
+                    var cont=vaWakeWordSwitches.indexOf(n)>=0?'va-wakewords':
+                             vaSwitches.indexOf(n)>=0?'va-selects':'device-settings';
+                    buildDynSwitch(cont,n);
+                    var cb=document.getElementById('sw-'+n.replace(/\s+/g,'_'));
+                    if(cb)cb.checked=(v==='ON'||v==='true'||v===true);
+                  }
+                });
+                deviceSettings.forEach(function(n){
+                  if(prefix==='number'&&n.toLowerCase()===ename.toLowerCase()){
+                    buildDynNumber('device-settings',n);
+                    var inp=document.getElementById('num-'+n.replace(/\s+/g,'_'));
+                    if(inp&&document.activeElement!==inp)inp.value=v;
+                  }
+                });
+              }
+            });
+          es.addEventListener('log',function(e){onLogMessage(e.data)});
+          }catch(ex){}
+
+          function pollEntity(url,cb){fetch(API+url).then(function(r){return r.json()}).then(cb).catch(function(){})}
+          setTimeout(function(){
+            pollEntity('/sensor/Wi-Fi%20Signal%20Strength',function(d){
+              var v=d.value!=null?d.value:d.state;
+              if(v!=null&&v!==''&&!isNaN(v))document.getElementById('s-wifi').textContent=v+' dBm';
+            });
+            pollEntity('/text_sensor/USB-C%20Power%20Supply',function(d){
+              var v=d.value||d.state;
+              if(v)document.getElementById('s-usbc').textContent=v;
+            });
+            pollEntity('/binary_sensor/Line-Out%20Connected',function(d){
+              var v=d.value!=null?d.value:d.state;
+              var con=(v==='ON'||v===true||v==='true');
+              document.getElementById('s-lineout-stat').textContent=con?'Yes':'No';
+              document.getElementById('s-lineout').textContent=con?'(jack connected)':'(no jack)';
+            });
+            pollEntity('/text_sensor/XMOS%20Firmware',function(d){
+              var v=d.value||d.state;
+              if(v)document.getElementById('s-xmos-fw').textContent=v;
+            });
+          },2000);
+
+          var logBuf=[],logPaused=false,logFilterMode='show',LOG_MAX=1000;
+          function escHtml(s){var d=document.createElement('div');d.appendChild(document.createTextNode(s));return d.innerHTML}
+          function getLogLevel(s){var m=s.match(/\[([EWIDV])\]/);return m?m[1]:''}
+          function onLogMessage(msg){
+            var lvl=getLogLevel(msg);
+            logBuf.push({text:msg,level:lvl});
+            if(logBuf.length>LOG_MAX)logBuf.shift();
+            document.getElementById('log-count').textContent=logBuf.length+' lines';
+            if(!logPaused)appendLogLine(logBuf[logBuf.length-1]);
+          }
+          function appendLogLine(entry){
+            var el=document.getElementById('log-output');
+            if(!passesFilter(entry))return;
+            var div=document.createElement('div');
+            div.className='log-line'+(entry.level?' log-'+entry.level.toLowerCase():'');
+            div.innerHTML=applyHighlight(escHtml(entry.text));
+            var atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<50;
+            el.appendChild(div);
+            while(el.children.length>LOG_MAX)el.removeChild(el.firstChild);
+            if(atBottom)el.scrollTop=el.scrollHeight;
+          }
+          function passesFilter(entry){
+            var selLvl=document.getElementById('log-level').value;
+            if(selLvl&&entry.level!==selLvl)return false;
+            var ft=document.getElementById('log-filter').value.trim();
+            if(!ft)return true;
+            var has=entry.text.toLowerCase().indexOf(ft.toLowerCase())>=0;
+            return logFilterMode==='show'?has:!has;
+          }
+          function applyHighlight(html){
+            var hl=document.getElementById('log-highlight').value.trim();
+            if(!hl)return html;
+            try{var re=new RegExp('('+hl.replace(/[.*+?\x24^{}()|[\]\\]/g,'\\\x24&')+')','gi');
+            return html.replace(re,'<mark>\x241</mark>')}catch(e){return html}
+          }
+          function renderLogs(){
+            var el=document.getElementById('log-output');
+            el.innerHTML='';
+            logBuf.forEach(function(entry){
+              if(!passesFilter(entry))return;
+              var div=document.createElement('div');
+              div.className='log-line'+(entry.level?' log-'+entry.level.toLowerCase():'');
+              div.innerHTML=applyHighlight(escHtml(entry.text));
+              el.appendChild(div);
+            });
+            el.scrollTop=el.scrollHeight;
+          }
+          function toggleFilterMode(){
+            logFilterMode=logFilterMode==='show'?'hide':'show';
+            document.getElementById('log-mode-btn').textContent=logFilterMode==='show'?'Show':'Hide';
+            renderLogs();
+          }
+          function toggleLogPause(){
+            logPaused=!logPaused;
+            document.getElementById('log-pause-btn').textContent=logPaused?'Resume':'Pause';
+            document.getElementById('log-pause-btn').className=logPaused?'btn btn-green':'btn btn-gray';
+            if(!logPaused)renderLogs();
+          }
+          function clearLogs(){
+            logBuf=[];
+            document.getElementById('log-output').innerHTML='';
+            document.getElementById('log-count').textContent='0 lines';
+          }
+
+          </script></body></html>)DBGHTML";
+
+          // ---------------------------------------------------------------
+          // Register /debug handler via onNotFound on the web_server.
+          // The WebServer's canHandle rejects unknown domains like "/debug",
+          // so onNotFound fires for it. This avoids handler-ordering issues.
+          // ---------------------------------------------------------------
+          if (wbase->get_server()) {
+            wbase->get_server()->onNotFound([](AsyncWebServerRequest *request) {
+              char url_buf[AsyncWebServerRequest::URL_BUF_SIZE];
+              auto url = request->url_to(url_buf);
+              if (url == "/debug") {
+                request->send(200, "text/html", DEBUG_HTML);
+              } else {
+                request->send(404);
+              }
+            });
+            ESP_LOGI("debug", "Debug dashboard registered at /debug (port 8080)");
+          }
+
+          // ---------------------------------------------------------------
+          // Audio streaming httpd on port 8081
+          // ---------------------------------------------------------------
+          struct AudioCtx {
+            uint8_t *ring;
+            volatile size_t *wr;
+            volatile size_t *rd;
+            size_t size;
+          };
+          static AudioCtx s_actx = { s_ring, &s_wr, &s_rd, RING_SZ };
+          static httpd_handle_t s_audio_httpd = nullptr;
+
+          if (!s_audio_httpd) {
+            httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+            cfg.server_port = 8081;
+            cfg.ctrl_port = 32770;
+            cfg.stack_size = 8192;
+            cfg.max_open_sockets = 2;
+            cfg.max_uri_handlers = 4;
+            cfg.lru_purge_enable = true;
+
+            if (httpd_start(&s_audio_httpd, &cfg) == ESP_OK) {
+              httpd_uri_t stream_uri = {};
+              stream_uri.uri = "/mic_stream";
+              stream_uri.method = HTTP_GET;
+              stream_uri.user_ctx = &s_actx;
+              stream_uri.handler = [](httpd_req_t *req) -> esp_err_t {
+                auto *c = (AudioCtx *)req->user_ctx;
+
+                httpd_resp_set_type(req, "audio/wav");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store");
+                httpd_resp_set_hdr(req, "Connection", "close");
+
+                static const uint8_t wav_hdr[44] = {
+                  'R','I','F','F', 0xFF,0xFF,0xFF,0x7F,
+                  'W','A','V','E', 'f','m','t',' ',
+                  16,0,0,0,  1,0,  1,0,
+                  0x80,0x3E,0x00,0x00,
+                  0x00,0x7D,0x00,0x00,
+                  2,0, 16,0,
+                  'd','a','t','a', 0xFF,0xFF,0xFF,0x7F
+                };
+                esp_err_t err = httpd_resp_send_chunk(req, (const char *)wav_hdr, 44);
+                if (err != ESP_OK) return err;
+
+                uint8_t chunk[2048];
+                while (id(mic_stream_active)) {
+                  size_t wr = *c->wr;
+                  size_t rd = *c->rd;
+                  size_t avail = (c->size + wr - rd) % c->size;
+                  if (avail == 0) {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                    continue;
+                  }
+                  size_t n = avail < sizeof(chunk) ? avail : sizeof(chunk);
+                  size_t first = c->size - rd;
+                  if (first > n) first = n;
+                  memcpy(chunk, c->ring + rd, first);
+                  if (n > first) memcpy(chunk + first, c->ring, n - first);
+                  *c->rd = (rd + n) % c->size;
+
+                  err = httpd_resp_send_chunk(req, (const char *)chunk, n);
+                  if (err != ESP_OK) break;
+                }
+                httpd_resp_send_chunk(req, nullptr, 0);
+                return ESP_OK;
+              };
+              httpd_register_uri_handler(s_audio_httpd, &stream_uri);
+              ESP_LOGI("debug", "Audio stream server started on port 8081");
+            } else {
+              ESP_LOGE("debug", "Failed to start audio httpd on port 8081");
+            }
+          }
+
+          // ---------------------------------------------------------------
+          // Register unified mic data callback
+          // ---------------------------------------------------------------
+          static bool cb_registered = false;
+          if (!cb_registered) {
+            cb_registered = true;
+            id(sat1_mics).add_data_callback([](const std::vector<uint8_t> &data) {
+              bool lineout = id(mic_monitor_active);
+              bool network = id(mic_stream_active);
+              if (!lineout && !network) return;
+
+              const int32_t *in = reinterpret_cast<const int32_t *>(data.data());
+              size_t total_samples = data.size() / sizeof(int32_t);
+              size_t num_frames = total_samples / 2;
+              int ch = id(mic_monitor_channel);
+              int32_t gain = id(mww_mic_source).get_gain_factor();
+
+              // --- Line-out path (pauses during VA) ---
+              if (lineout) {
+                static bool va_was_active = false;
+                bool va_active = (id(voice_assistant_phase) != ${voice_assist_idle_phase_id});
+                if (va_active) { va_was_active = true; }
+                else {
+                  if (va_was_active) {
+                    va_was_active = false;
+                    id(announcement_resampling_speaker).stop();
+                    audio::AudioStreamInfo info(16, 2, 16000);
+                    id(announcement_resampling_speaker).set_audio_stream_info(info);
+                    id(announcement_resampling_speaker).start();
+                    ESP_LOGI("mic_monitor", "VA finished - reclaimed speaker for mic monitor");
+                  }
+                  if (!va_active) {
+                    std::vector<uint8_t> out(num_frames * 2 * sizeof(int16_t));
+                    int16_t *out16 = reinterpret_cast<int16_t *>(out.data());
+                    int32_t peak_out = 0;
+                    for (size_t f = 0; f < num_frames; f++) {
+                      int32_t left = in[f * 2], right = in[f * 2 + 1];
+                      int32_t val = (ch == 0) ? left : (ch == 1) ? right : (left / 2) + (right / 2);
+                      int32_t sample = val >> 16;
+                      if (ch == 1 || ch == 2) {
+                        sample *= gain;
+                        if (sample > 32767) sample = 32767;
+                        if (sample < -32768) sample = -32768;
+                      }
+                      int32_t abs_s = sample < 0 ? -sample : sample;
+                      if (abs_s > peak_out) peak_out = abs_s;
+                      int16_t s = static_cast<int16_t>(sample);
+                      out16[f * 2] = s;
+                      out16[f * 2 + 1] = s;
+                    }
+                    static uint32_t log_ctr = 0;
+                    if (++log_ctr >= 62) {
+                      float db = (peak_out > 0) ? 20.0f * log10f((float)peak_out / 32767.0f) : -100.0f;
+                      const char *cn = (ch == 0) ? "Ch0 (VA)" : (ch == 1) ? "Ch1 (MWW)" : "Mix";
+                      ESP_LOGI("mic_monitor", "Monitor: %s  |  gain: %dx  |  output peak: %.1f dBFS", cn, (int)gain, db);
+                      log_ctr = 0;
+                    }
+                    id(announcement_resampling_speaker).play(out.data(), out.size());
+                  }
+                }
+              }
+
+              // --- Network stream path (does NOT pause during VA) ---
+              if (network && s_ring) {
+                int16_t mono[512];
+                size_t n = num_frames < 512 ? num_frames : 512;
+                for (size_t f = 0; f < n; f++) {
+                  int32_t left = in[f * 2], right = in[f * 2 + 1];
+                  int32_t val = (ch == 0) ? left : (ch == 1) ? right : (left / 2) + (right / 2);
+                  int32_t sample = val >> 16;
+                  if (ch == 1 || ch == 2) {
+                    sample *= gain;
+                    if (sample > 32767) sample = 32767;
+                    if (sample < -32768) sample = -32768;
+                  }
+                  mono[f] = static_cast<int16_t>(sample);
+                }
+                const uint8_t *src = reinterpret_cast<const uint8_t *>(mono);
+                size_t len = n * sizeof(int16_t);
+                size_t wr = s_wr;
+                size_t rd = s_rd;
+                size_t space = (RING_SZ + rd - wr - 1) % RING_SZ;
+                if (len > space) len = space;
+                size_t first = RING_SZ - wr;
+                if (first > len) first = len;
+                memcpy(s_ring + wr, src, first);
+                if (len > first) memcpy(s_ring, src + first, len - first);
+                s_wr = (wr + len) % RING_SZ;
+              }
+            });
+          }
 
 text_sensor:
   - platform: debug
@@ -29,6 +680,32 @@ text_sensor:
   - platform: version
     name: "Firmware Version"
     hide_timestamp: true
+
+  - platform: template
+    name: "MAC Address"
+    id: mac_address_text
+    icon: "mdi:network-outline"
+    entity_category: "diagnostic"
+    update_interval: never
+    lambda: |-
+      return get_mac_address_pretty();
+
+  - platform: template
+    name: "Assist Satellite State"
+    id: va_state_text
+    icon: "mdi:account-voice"
+    entity_category: "diagnostic"
+    update_interval: 2s
+    lambda: |-
+      int phase = id(voice_assistant_phase);
+      if (phase == ${voice_assist_not_ready_phase_id}) return std::string("Not Ready");
+      if (phase == ${voice_assist_idle_phase_id}) return std::string("Idle");
+      if (phase == ${voice_assist_waiting_for_command_phase_id}) return std::string("Waiting for Command");
+      if (phase == ${voice_assist_listening_for_command_phase_id}) return std::string("Listening");
+      if (phase == ${voice_assist_thinking_phase_id}) return std::string("Thinking");
+      if (phase == ${voice_assist_replying_phase_id}) return std::string("Replying");
+      if (phase == ${voice_assist_error_phase_id}) return std::string("Error");
+      return std::string("Unknown");
 
 sensor:
   - platform: debug
@@ -45,13 +722,30 @@ sensor:
       name: "Free PSRAM"
       entity_category: "diagnostic"
 
+  - platform: template
+    name: "Total Heap"
+    id: total_heap_sensor
+    entity_category: "diagnostic"
+    unit_of_measurement: "B"
+    update_interval: never
+    lambda: |-
+      return heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+
+  - platform: template
+    name: "Total PSRAM"
+    id: total_psram_sensor
+    entity_category: "diagnostic"
+    unit_of_measurement: "B"
+    update_interval: never
+    lambda: |-
+      return heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+
   - platform: internal_temperature
     name: "Internal ESP Temperature"
     entity_category: "diagnostic"
     update_interval: 60s
 
 button:
-  # Restarts Sat1 to safe mode
   - platform: safe_mode
     name: "Restart Sat1 (Safe Mode)"
     entity_category: diagnostic
@@ -64,7 +758,6 @@ button:
       then:
         - satellite1.xmos_hardware_reset
 
-  # Flashes Sat1 HAT with specific XMOS firmware
   - platform: template
     id: flash_satellite
     name: "XMOS Flash ${xmos_fw_version}"
@@ -76,7 +769,6 @@ button:
             image_file: https://raw.githubusercontent.com/FutureProofHomes/Documentation/refs/heads/main/assets/firmware/xmos/${xmos_fw_version}/satellite1_firmware_fixed_delay.factory.bin
             md5_url: https://raw.githubusercontent.com/FutureProofHomes/Documentation/refs/heads/main/assets/firmware/xmos/${xmos_fw_version}/satellite1_firmware_fixed_delay.factory.md5
 
-  # Flashes Sat1 HAT with XMOS firmware embedded in the ESP32
   - platform: template
     id: flash_embedded
     name: "XMOS Flash Embedded FW"
@@ -85,7 +777,6 @@ button:
       then:
         - memory_flasher.write_embedded_image:
 
-  # Wipes the Satellite1 HAT XMOS Chip
   - platform: template
     id: erase_xmos_flash
     name: "XMOS Erase Chip"
@@ -93,3 +784,171 @@ button:
     on_press:
       then:
         - memory_flasher.erase:
+
+# ---------------------------------------------------------------------------
+# Mic / LED diagnostic tooling
+# ---------------------------------------------------------------------------
+globals:
+  - id: mic_monitor_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: mic_monitor_channel
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: mic_stream_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+switch:
+  - platform: template
+    name: "Mic Monitor (Line-Out)"
+    id: mic_monitor_switch
+    icon: "mdi:microphone-message"
+    entity_category: diagnostic
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: |-
+          id(announcement_resampling_speaker).stop();
+          audio::AudioStreamInfo info(16, 2, 16000);
+          id(announcement_resampling_speaker).set_audio_stream_info(info);
+          id(announcement_resampling_speaker).start();
+          id(mic_monitor_active) = true;
+      - dac_proxy.activate_line_out:
+    turn_off_action:
+      - lambda: |-
+          id(mic_monitor_active) = false;
+      - delay: 200ms
+      - lambda: |-
+          id(announcement_resampling_speaker).stop();
+
+  - platform: template
+    name: "Mic Monitor (Network Stream)"
+    id: mic_stream_switch
+    icon: "mdi:broadcast"
+    entity_category: diagnostic
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: |-
+          id(mic_stream_active) = true;
+          ESP_LOGI("debug", "Network mic stream enabled — connect to http://<device-ip>:8081/mic_stream");
+    turn_off_action:
+      - lambda: |-
+          id(mic_stream_active) = false;
+          ESP_LOGI("debug", "Network mic stream disabled");
+
+  - platform: template
+    name: "Hey Jarvis"
+    id: ww_hey_jarvis_switch
+    icon: "mdi:account-voice"
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: |-
+      return id(hey_jarvis).is_enabled();
+    turn_on_action:
+      - micro_wake_word.enable_model:
+          id: hey_jarvis
+      - lambda: ESP_LOGI("debug", "Wake word 'Hey Jarvis' enabled");
+    turn_off_action:
+      - micro_wake_word.disable_model:
+          id: hey_jarvis
+      - lambda: ESP_LOGI("debug", "Wake word 'Hey Jarvis' disabled");
+
+  - platform: template
+    name: "Okay Nabu"
+    id: ww_okay_nabu_switch
+    icon: "mdi:account-voice"
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: |-
+      return id(okay_nabu).is_enabled();
+    turn_on_action:
+      - micro_wake_word.enable_model:
+          id: okay_nabu
+      - lambda: ESP_LOGI("debug", "Wake word 'Okay Nabu' enabled");
+    turn_off_action:
+      - micro_wake_word.disable_model:
+          id: okay_nabu
+      - lambda: ESP_LOGI("debug", "Wake word 'Okay Nabu' disabled");
+
+number:
+  - platform: template
+    name: "Wake Word Mic Gain"
+    id: mww_gain_number
+    icon: "mdi:microphone-plus"
+    entity_category: diagnostic
+    min_value: 1
+    max_value: 64
+    step: 1
+    mode: slider
+    initial_value: 6
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: |-
+          id(mww_mic_source).set_gain_factor(static_cast<int32_t>(x));
+          ESP_LOGI("mic_monitor", "Wake word mic gain set to %d", (int)x);
+
+select:
+  - platform: template
+    name: "Mic Monitor Channel"
+    id: mic_monitor_channel_select
+    icon: "mdi:microphone-settings"
+    entity_category: diagnostic
+    options:
+      - "Ch 0 - Voice Assistant"
+      - "Ch 1 - Wake Word"
+      - "Both (Mono Mix)"
+    initial_option: "Ch 0 - Voice Assistant"
+    optimistic: true
+    restore_value: false
+    on_value:
+      - lambda: |-
+          if (x == "Ch 1 - Wake Word") {
+            id(mic_monitor_channel) = 1;
+          } else if (x == "Both (Mono Mix)") {
+            id(mic_monitor_channel) = 2;
+          } else {
+            id(mic_monitor_channel) = 0;
+          }
+
+  - platform: template
+    name: "LED Animation Test"
+    id: led_animation_test
+    icon: "mdi:led-on"
+    entity_category: diagnostic
+    options:
+      - "Normal"
+      - "Waiting for Command"
+      - "Listening for Command"
+      - "Thinking"
+      - "Replying"
+      - "Error"
+    initial_option: "Normal"
+    optimistic: true
+    restore_value: false
+    on_value:
+      - lambda: |-
+          static bool setup_done = false;
+          if (x == "Waiting for Command") {
+            id(voice_assistant_phase) = ${voice_assist_waiting_for_command_phase_id};
+          } else if (x == "Listening for Command") {
+            id(voice_assistant_phase) = ${voice_assist_listening_for_command_phase_id};
+          } else if (x == "Thinking") {
+            id(voice_assistant_phase) = ${voice_assist_thinking_phase_id};
+          } else if (x == "Replying") {
+            id(voice_assistant_phase) = ${voice_assist_replying_phase_id};
+          } else if (x == "Error") {
+            id(voice_assistant_phase) = ${voice_assist_error_phase_id};
+          } else {
+            id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
+          }
+          if (!setup_done) {
+            setup_done = true;
+            return;
+          }
+          id(control_leds).execute();
