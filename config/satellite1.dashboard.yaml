@@ -25,11 +25,6 @@ packages:
           ext_comp_repo_ref: staging  # Make sure to set this to the same as the ref above
 
       # yamllint disable rule:comments-indentation
-      # OPTIONALLY, uncomment if you have the smaller LD2410 mmWave sensor connected to your HAT.
-      # - config/common/mmwave_ld2410.yaml
-
-      ## OPTIONALLY, uncomment if you have the larger LD2450 mmWave sensor connected to your HAT.
-      # - config/common/mmwave_ld2450.yaml
 
       ## OPTIONALLY, uncomment if want extra memory, wifi and xmos control of the device.
       # - config/common/debug.yaml

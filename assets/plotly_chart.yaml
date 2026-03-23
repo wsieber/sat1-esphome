@@ -1,0 +1,147 @@
+# Satellite1 Plotly Graph Card - LD2450 Radar Visualization
+#
+# Prerequisites:
+#   - Install "Plotly Graph Card" from HACS
+#   - Replace all occurrences of "replace_me" with your actual ESPHome device name
+#     (e.g., if your device is "satellite1_office", replace "replace_me" with "satellite1_office")
+#
+# Usage:
+#   1. In Home Assistant, go to a dashboard
+#   2. Add Card -> Custom: Plotly Graph Card
+#   3. Switch to YAML editor and paste this configuration
+#   4. Save
+
+type: custom:plotly-graph
+hours_to_show: 0
+refresh_interval: 1
+layout:
+  title:
+    text: Satellite1 Radar View
+    font:
+      size: 14
+      color: white
+  paper_bgcolor: "#0a0d12"
+  plot_bgcolor: "#10131a"
+  font:
+    color: "#d0d4dc"
+  xaxis:
+    title: X (cm)
+    range: [-400, 400]
+    gridcolor: "#1e2330"
+    zerolinecolor: "#2a2e38"
+    fixedrange: true
+  yaxis:
+    title: Y (cm)
+    range: [0, 600]
+    gridcolor: "#1e2330"
+    zerolinecolor: "#2a2e38"
+    scaleanchor: x
+    fixedrange: true
+  showlegend: true
+  legend:
+    font:
+      size: 10
+
+entities:
+  # Target 1 position
+  - entity: sensor.replace_me_target_1_x
+    internal: true
+    name: Target 1 X
+  - entity: sensor.replace_me_target_1_y
+    internal: true
+    name: Target 1 Y
+  - entity: sensor.replace_me_target_2_x
+    internal: true
+    name: Target 2 X
+  - entity: sensor.replace_me_target_2_y
+    internal: true
+    name: Target 2 Y
+  - entity: sensor.replace_me_target_3_x
+    internal: true
+    name: Target 3 X
+  - entity: sensor.replace_me_target_3_y
+    internal: true
+    name: Target 3 Y
+
+  # Zone point count entities (used for polygon construction)
+  - entity: number.replace_me_zone_1_points_count
+    internal: true
+    name: Z1 Count
+  - entity: number.replace_me_zone_2_points_count
+    internal: true
+    name: Z2 Count
+  - entity: number.replace_me_zone_3_points_count
+    internal: true
+    name: Z3 Count
+  - entity: number.replace_me_exclusion_zone_points_count
+    internal: true
+    name: EZ Count
+  - entity: number.replace_me_detection_range
+    internal: true
+    name: Detection Range
+
+raw_plotly_config: true
+custom_data:
+  # Target dots
+  - type: scatter
+    name: Target 1
+    x:
+      - $ex hass.states["sensor.replace_me_target_1_x"].state
+    y:
+      - $ex hass.states["sensor.replace_me_target_1_y"].state
+    mode: markers
+    marker:
+      size: 12
+      color: "#22c55e"
+      symbol: circle
+  - type: scatter
+    name: Target 2
+    x:
+      - $ex hass.states["sensor.replace_me_target_2_x"].state
+    y:
+      - $ex hass.states["sensor.replace_me_target_2_y"].state
+    mode: markers
+    marker:
+      size: 12
+      color: "#3b82f6"
+      symbol: circle
+  - type: scatter
+    name: Target 3
+    x:
+      - $ex hass.states["sensor.replace_me_target_3_x"].state
+    y:
+      - $ex hass.states["sensor.replace_me_target_3_y"].state
+    mode: markers
+    marker:
+      size: 12
+      color: "#eab308"
+      symbol: circle
+
+  # FOV boundary lines (120-degree cone)
+  - type: scatter
+    name: FOV
+    x: [0, -346, null, 0, 346]
+    y: [0, 600, null, 0, 600]
+    mode: lines
+    line:
+      color: "#2a2e38"
+      width: 1
+      dash: dot
+    showlegend: false
+
+  # Sensor position
+  - type: scatter
+    name: Sensor
+    x: [0]
+    y: [0]
+    mode: markers+text
+    text: ["SENSOR"]
+    textposition: top center
+    textfont:
+      size: 9
+      color: "#6b7280"
+    marker:
+      size: 8
+      color: "#6b7280"
+      symbol: diamond
+    showlegend: false
