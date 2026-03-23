@@ -17,12 +17,7 @@ from esphome.components.esp32 import (
     include_builtin_idf_component,
 )
 from esphome.components.network import ip_address_literal
-from esphome.components.spi import (
-    CONF_INTERFACE_INDEX, 
-    get_spi_interface,
-    SPIComponent,
-
-) 
+from esphome.components.spi import CONF_INTERFACE_INDEX, get_spi_interface, SPIComponent
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
@@ -40,6 +35,8 @@ from esphome.const import (
     CONF_MODE,
     CONF_MOSI_PIN,
     CONF_NUMBER,
+    CONF_ON_CONNECT,
+    CONF_ON_DISCONNECT,
     CONF_PAGE_ID,
     CONF_PIN,
     CONF_POLLING_INTERVAL,
@@ -48,7 +45,6 @@ from esphome.const import (
     CONF_SPI_ID,
     CONF_STATIC_IP,
     CONF_SUBNET,
-    CONF_TRIGGER_ID,
     CONF_TYPE,
     CONF_USE_ADDRESS,
     CONF_VALUE,
@@ -64,12 +60,24 @@ from esphome.core import (
 import esphome.final_validate as fv
 from esphome.types import ConfigType
 
-
-from esphome.components.spi import  spi_device_schema
-
 DEPENDENCIES = ["esp32"]
 AUTO_LOAD = ["network"]
 LOGGER = logging.getLogger(__name__)
+
+# Key for tracking IP state listener count in CORE.data
+ETHERNET_IP_STATE_LISTENERS_KEY = "ethernet_ip_state_listeners"
+
+
+def request_ethernet_ip_state_listener() -> None:
+    """Request an IP state listener slot.
+
+    Components that implement EthernetIPStateListener should call this
+    in their to_code() to register for IP state notifications.
+    """
+    CORE.data[ETHERNET_IP_STATE_LISTENERS_KEY] = (
+        CORE.data.get(ETHERNET_IP_STATE_LISTENERS_KEY, 0) + 1
+    )
+
 
 # RMII pins that are hardcoded on ESP32 classic and cannot be changed
 # These pins are used by the internal Ethernet MAC when using RMII PHYs
@@ -96,10 +104,6 @@ ESP32P4_RMII_DEFAULT_PINS = {
 
 ethernet_ns = cg.esphome_ns.namespace("ethernet")
 PHYRegister = ethernet_ns.struct("PHYRegister")
-EthernetConnectedTrigger = ethernet_ns.class_("EthernetConnectedTrigger", automation.Trigger)
-EthernetDisconnectedTrigger = ethernet_ns.class_("EthernetDisconnectedTrigger", automation.Trigger)
-CONF_ON_CONNECTED = "on_connected"
-CONF_ON_DISCONNECTED = "on_disconnected"
 CONF_PHY_ADDR = "phy_addr"
 CONF_MDC_PIN = "mdc_pin"
 CONF_MDIO_PIN = "mdio_pin"
@@ -126,11 +130,16 @@ ETHERNET_TYPES = {
 }
 
 # PHY types that need compile-time defines for conditional compilation
+# Each RMII PHY type gets a define so unused PHY drivers are excluded by the linker
 _PHY_TYPE_TO_DEFINE = {
+    "LAN8720": "USE_ETHERNET_LAN8720",
+    "RTL8201": "USE_ETHERNET_RTL8201",
+    "DP83848": "USE_ETHERNET_DP83848",
+    "IP101": "USE_ETHERNET_IP101",
+    "JL1101": "USE_ETHERNET_JL1101",
     "KSZ8081": "USE_ETHERNET_KSZ8081",
     "KSZ8081RNA": "USE_ETHERNET_KSZ8081",
     "LAN8670": "USE_ETHERNET_LAN8670",
-    # Add other PHY types here only if they need conditional compilation
 }
 
 SPI_ETHERNET_TYPES = ["W5500", "DM9051"]
@@ -187,6 +196,14 @@ def _validate(config):
         config[CONF_USE_ADDRESS] = use_address
 
     if config[CONF_TYPE] in SPI_ETHERNET_TYPES:
+        if CONF_SPI_ID not in config:
+            for pin_key in (CONF_CLK_PIN, CONF_MISO_PIN, CONF_MOSI_PIN):
+                if pin_key not in config:
+                    raise cv.Invalid(
+                        f"'{pin_key}' is required when 'spi_id' is not specified "
+                        f"for SPI Ethernet types ({', '.join(SPI_ETHERNET_TYPES)})"
+                    )
+
         if _is_framework_spi_polling_mode_supported():
             if CONF_POLLING_INTERVAL in config and CONF_INTERRUPT_PIN in config:
                 raise cv.Invalid(
@@ -209,12 +226,19 @@ def _validate(config):
                 )
     elif config[CONF_TYPE] != "OPENETH":
         if CONF_CLK_MODE in config:
+            mode, pin = CLK_MODES_DEPRECATED[config[CONF_CLK_MODE]]
             LOGGER.warning(
-                "[ethernet] The 'clk_mode' option is deprecated and will be removed in ESPHome 2026.1. "
-                "Please update your configuration to use 'clk' instead."
+                "[ethernet] The 'clk_mode' option is deprecated. "
+                "Please replace 'clk_mode: %s' with:\n"
+                "  clk:\n"
+                "    mode: %s\n"
+                "    pin: %s\n"
+                "Removal scheduled for 2026.7.0.",
+                config[CONF_CLK_MODE],
+                mode,
+                pin,
             )
-            mode = CLK_MODES_DEPRECATED[config[CONF_CLK_MODE]]
-            config[CONF_CLK] = CLK_SCHEMA({CONF_MODE: mode[0], CONF_PIN: mode[1]})
+            config[CONF_CLK] = CLK_SCHEMA({CONF_MODE: mode, CONF_PIN: pin})
             del config[CONF_CLK_MODE]
         elif CONF_CLK not in config:
             raise cv.Invalid("'clk' is a required option for [ethernet].")
@@ -234,17 +258,9 @@ BASE_SCHEMA = cv.Schema(
         cv.Optional(CONF_MANUAL_IP): MANUAL_IP_SCHEMA,
         cv.Optional(CONF_DOMAIN, default=".local"): cv.domain_name,
         cv.Optional(CONF_USE_ADDRESS): cv.string_strict,
-        cv.Optional("enable_mdns"): cv.invalid(
-            "This option has been removed. Please use the [disabled] option under the "
-            "new mdns component instead."
-        ),
         cv.Optional(CONF_MAC_ADDRESS): cv.mac_address,
-        cv.Optional(CONF_ON_CONNECTED): automation.validate_automation(
-            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(EthernetConnectedTrigger)}
-        ),
-        cv.Optional(CONF_ON_DISCONNECTED): automation.validate_automation(
-            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(EthernetDisconnectedTrigger)}
-        ),
+        cv.Optional(CONF_ON_CONNECT): automation.validate_automation(single=True),
+        cv.Optional(CONF_ON_DISCONNECT): automation.validate_automation(single=True),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -280,13 +296,11 @@ RMII_SCHEMA = BASE_SCHEMA.extend(
 SPI_SCHEMA = BASE_SCHEMA.extend(
     cv.Schema(
         {
-            cv.GenerateID(CONF_SPI_ID): cv.use_id(SPIComponent),
-            #cv.Optional(CONF_CLK_PIN): pins.internal_gpio_output_pin_number,
-            #cv.Optional(CONF_MISO_PIN): pins.internal_gpio_input_pin_number,
-            #cv.Optional(CONF_MOSI_PIN): pins.internal_gpio_output_pin_number,
-            cv.Optional(CONF_CS_PIN): pins.internal_gpio_output_pin_number,
-
-            
+            cv.Optional(CONF_SPI_ID): cv.use_id(SPIComponent),
+            cv.Optional(CONF_CLK_PIN): pins.internal_gpio_output_pin_number,
+            cv.Optional(CONF_MISO_PIN): pins.internal_gpio_input_pin_number,
+            cv.Optional(CONF_MOSI_PIN): pins.internal_gpio_output_pin_number,
+            cv.Required(CONF_CS_PIN): pins.internal_gpio_output_pin_number,
             cv.Optional(CONF_INTERRUPT_PIN): pins.internal_gpio_input_pin_number,
             cv.Optional(CONF_RESET_PIN): pins.internal_gpio_output_pin_number,
             cv.Optional(CONF_CLOCK_SPEED, default="26.67MHz"): cv.All(
@@ -298,7 +312,7 @@ SPI_SCHEMA = BASE_SCHEMA.extend(
                 cv.Range(min=TimePeriodMilliseconds(milliseconds=1)),
             ),
         }
-    )
+    ),
 )
 
 CONFIG_SCHEMA = cv.All(
@@ -325,6 +339,8 @@ CONFIG_SCHEMA = cv.All(
 def _final_validate_spi(config):
     if config[CONF_TYPE] not in SPI_ETHERNET_TYPES:
         return
+    if CONF_SPI_ID in config:
+        return
     if spi_configs := fv.full_config.get().get(CONF_SPI):
         variant = get_esp32_variant()
         if variant in (
@@ -338,14 +354,14 @@ def _final_validate_spi(config):
             spi_host = "SPI2_HOST"
         else:
             spi_host = "SPI3_HOST"
-        # for spi_conf in spi_configs:
-        #     if (index := spi_conf.get(CONF_INTERFACE_INDEX)) is not None:
-        #         interface = get_spi_interface(index)
-        #         if interface == spi_host:
-        #             raise cv.Invalid(
-        #                 f"`spi` component is using interface '{interface}'. "
-        #                 f"To use {config[CONF_TYPE]}, you must change the `interface` on the `spi` component.",
-        #             )
+        for spi_conf in spi_configs:
+            if (index := spi_conf.get(CONF_INTERFACE_INDEX)) is not None:
+                interface = get_spi_interface(index)
+                if interface == spi_host:
+                    raise cv.Invalid(
+                        f"`spi` component is using interface '{interface}'. "
+                        f"To use {config[CONF_TYPE]}, you must change the `interface` on the `spi` component.",
+                    )
 
 
 def manual_ip(config):
@@ -368,16 +384,36 @@ def phy_register(address: int, value: int, page: int):
     )
 
 
+def _get_spi_host_for_variant():
+    """Return the SPI host integer value matching the ESP32 variant."""
+    variant = get_esp32_variant()
+    if variant in (
+        VARIANT_ESP32C3,
+        VARIANT_ESP32C5,
+        VARIANT_ESP32C6,
+        VARIANT_ESP32C61,
+        VARIANT_ESP32S2,
+        VARIANT_ESP32S3,
+    ):
+        return 1  # SPI2_HOST
+    return 2  # SPI3_HOST
+
+
 @coroutine_with_priority(CoroPriority.COMMUNICATION)
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
     if config[CONF_TYPE] in SPI_ETHERNET_TYPES:
-        #cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
-        #cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
-        #cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
-        #pin = await cg.gpio_pin_expression(config[CONF_CS_PIN])
+        if CONF_SPI_ID in config:
+            spi = await cg.get_variable(config[CONF_SPI_ID])
+            cg.add(var.set_use_shared_spi_bus(True))
+            cg.add(var.set_spi_host(_get_spi_host_for_variant()))
+        else:
+            cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
+            cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
+            cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
+
         cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
         if CONF_INTERRUPT_PIN in config:
             cg.add(var.set_interrupt_pin(config[CONF_INTERRUPT_PIN]))
@@ -425,28 +461,32 @@ async def to_code(config):
     if mac_address := config.get(CONF_MAC_ADDRESS):
         cg.add(var.set_fixed_mac(mac_address.parts))
 
-    for conf in config.get(CONF_ON_CONNECTED, []):
-        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
-        await automation.build_automation(trigger, [], conf)
-    for conf in config.get(CONF_ON_DISCONNECTED, []):
-        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
-        await automation.build_automation(trigger, [], conf)
-
     cg.add_define("USE_ETHERNET")
 
-    # Force ESP-IDF to build ethernet driver (esp_eth.h)
     add_idf_sdkconfig_option("CONFIG_ETH_ENABLED", "y")
 
-    # ESP32 component excludes esp_eth by default; include it so esp_eth.h is available
     if not CORE.using_arduino:
         include_builtin_idf_component("esp_eth")
 
     if config[CONF_TYPE] == "LAN8670":
-        # Add LAN867x 10BASE-T1S PHY support component
         add_idf_component(name="espressif/lan867x", ref="2.0.0")
 
     if CORE.using_arduino:
         cg.add_library("WiFi", None)
+
+    if on_connect_config := config.get(CONF_ON_CONNECT):
+        cg.add_define("USE_ETHERNET_CONNECT_TRIGGER")
+        await automation.build_automation(
+            var.get_connect_trigger(), [], on_connect_config
+        )
+
+    if on_disconnect_config := config.get(CONF_ON_DISCONNECT):
+        cg.add_define("USE_ETHERNET_DISCONNECT_TRIGGER")
+        await automation.build_automation(
+            var.get_disconnect_trigger(), [], on_disconnect_config
+        )
+
+    CORE.add_job(final_step)
 
 
 def _final_validate_rmii_pins(config: ConfigType) -> None:
@@ -504,3 +544,11 @@ def _final_validate(config: ConfigType) -> ConfigType:
 
 
 FINAL_VALIDATE_SCHEMA = _final_validate
+
+
+@coroutine_with_priority(CoroPriority.FINAL)
+async def final_step():
+    """Final code generation step to configure optional Ethernet features."""
+    if ip_state_count := CORE.data.get(ETHERNET_IP_STATE_LISTENERS_KEY, 0):
+        cg.add_define("USE_ETHERNET_IP_STATE_LISTENERS")
+        cg.add_define("ESPHOME_ETHERNET_IP_STATE_LISTENERS", ip_state_count)

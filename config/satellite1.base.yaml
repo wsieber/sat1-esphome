@@ -206,11 +206,13 @@ ethernet:
   type: W5500
   spi_id: spi_0
   cs_pin: GPIO3
-  on_connected:
-    # Script disables WiFi and BLE when ethernet has IP (voice_assistant can then use micro_wake_word)
+  interrupt_pin: GPIO38
+  on_connect:
     - script.execute: prefer_ethernet_over_wifi
     - script.execute: control_leds
+    - component.update: network_ip
     - tas2780.activate:
         mode: 2
-  on_disconnected:
+  on_disconnect:
     - script.execute: prefer_ethernet_over_wifi
+    - component.update: network_ip

@@ -64,25 +64,35 @@ switch:
 text_sensor:
   - platform: template
     id: network_ip
-    name: "Network IP"
-    icon: "mdi:ip-network"
+    name: "Network"
+    icon: "mdi:network"
     entity_category: "diagnostic"
-    update_interval: 5s
+    update_interval: 60s
     lambda: |-
-      // Prefer Ethernet IP if available, otherwise WiFi IP; fall back to status string.
       auto ips = id(ethernet_id).get_ip_addresses();
       for (auto &ip : ips) {
         auto s = ip.str();
         if (!s.empty() && s != "0.0.0.0") {
-          return std::string("Ethernet: ") + s;
+          auto speed = id(ethernet_id).get_link_speed() == ETH_SPEED_100M ? "100" : "10";
+          auto duplex = id(ethernet_id).get_duplex_mode() == ETH_DUPLEX_FULL ? "Full" : "Half";
+          char buf[96];
+          snprintf(buf, sizeof(buf), "Eth: %s\n%s Mbps %s Duplex", s.c_str(), speed, duplex);
+          return std::string(buf);
         }
       }
       if (esphome::wifi::global_wifi_component != nullptr) {
-        auto wifi_ips = esphome::wifi::global_wifi_component->get_ip_addresses();
+        auto wifi = esphome::wifi::global_wifi_component;
+        auto wifi_ips = wifi->get_ip_addresses();
         for (auto &ip : wifi_ips) {
           auto s = ip.str();
           if (!s.empty() && s != "0.0.0.0") {
-            return std::string("WiFi: ") + s;
+            auto ssid = wifi->wifi_ssid();
+            auto rssi = wifi->wifi_rssi();
+            auto ch = wifi->get_wifi_channel();
+            char buf[160];
+            snprintf(buf, sizeof(buf), "WiFi: %s\nSSID: %s\nSignal: %d dBm\nCh: %d",
+                     s.c_str(), ssid.c_str(), (int)rssi, (int)ch);
+            return std::string(buf);
           }
         }
       }

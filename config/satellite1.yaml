@@ -25,9 +25,11 @@ packages:
               lambda: return !id(ethernet_id).is_connected();
             then:
               - ble.enable:
+        - component.update: network_ip
       on_connect:
         - delay: 5s  # Gives time for improv results to be transmitted
         - ble.disable:
+        - component.update: network_ip
 
     satellite1:
       on_xmos_no_response:

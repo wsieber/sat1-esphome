@@ -1,5 +1,6 @@
 #include "ethernet_component.h"
 #include "esphome/core/application.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
 
@@ -8,7 +9,6 @@
 #include <lwip/dns.h>
 #include <cinttypes>
 #include "esp_event.h"
-#include "esp_system.h"
 
 #ifdef USE_ETHERNET_LAN8670
 #include "esp_eth_phy_lan867x.h"
@@ -40,6 +40,9 @@ namespace ethernet {
 
 static const char *const TAG = "ethernet";
 
+// PHY register size for hex logging
+static constexpr size_t PHY_REG_SIZE = 2;
+
 EthernetComponent *global_eth_component;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 void EthernetComponent::log_error_and_mark_failed_(esp_err_t err, const char *message) {
@@ -69,43 +72,45 @@ void EthernetComponent::setup() {
 
   esp_err_t err;
 
-// #ifdef USE_ETHERNET_SPI 
-//   // Install GPIO ISR handler to be able to service SPI Eth modules interrupts
-//   gpio_install_isr_service(0);
+#ifdef USE_ETHERNET_SPI
+  spi_host_device_t host;
 
-//   spi_bus_config_t buscfg = {
-//       .mosi_io_num = this->mosi_pin_,
-//       .miso_io_num = this->miso_pin_,
-//       .sclk_io_num = this->clk_pin_,
-//       .quadwp_io_num = -1,
-//       .quadhd_io_num = -1,
-//       .data4_io_num = -1,
-//       .data5_io_num = -1,
-//       .data6_io_num = -1,
-//       .data7_io_num = -1,
-//       .max_transfer_sz = 0,
-//       .flags = 0,
-//       .intr_flags = 0,
-//   };
+  if (this->use_shared_spi_bus_) {
+    host = (spi_host_device_t) this->spi_host_;
+  } else {
+    gpio_install_isr_service(0);
 
-// #if defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C5) || defined(USE_ESP32_VARIANT_ESP32C6) || \
-//     defined(USE_ESP32_VARIANT_ESP32C61) || defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3)
-//   auto host = SPI2_HOST;
-// #else
-//   auto host = SPI3_HOST;
-// #endif
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = this->mosi_pin_,
+        .miso_io_num = this->miso_pin_,
+        .sclk_io_num = this->clk_pin_,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .data4_io_num = -1,
+        .data5_io_num = -1,
+        .data6_io_num = -1,
+        .data7_io_num = -1,
+        .max_transfer_sz = 0,
+        .flags = 0,
+        .intr_flags = 0,
+    };
 
-//   err = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
-//   ESPHL_ERROR_CHECK(err, "SPI bus initialize error");
-// #endif
+#if defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C5) || defined(USE_ESP32_VARIANT_ESP32C6) || \
+    defined(USE_ESP32_VARIANT_ESP32C61) || defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3)
+    host = SPI2_HOST;
+#else
+    host = SPI3_HOST;
+#endif
 
-  auto host = SPI2_HOST; //this->spi_channel_ ;
+    err = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
+    ESPHL_ERROR_CHECK(err, "SPI bus initialize error");
+  }
+#endif
 
   err = esp_netif_init();
   ESPHL_ERROR_CHECK(err, "ETH netif init error");
   err = esp_event_loop_create_default();
   if (err == ESP_ERR_INVALID_STATE) {
-    // Default loop already exists (e.g. WiFi ran first); use it
     err = ESP_OK;
   }
   ESPHL_ERROR_CHECK(err, "ETH event loop error");
@@ -130,7 +135,7 @@ void EthernetComponent::setup() {
       .input_delay_ns = 0,
       .spics_io_num = this->cs_pin_,
       .flags = 0,
-      .queue_size = 8,
+      .queue_size = 20,
       .pre_cb = nullptr,
       .post_cb = nullptr,
   };
@@ -189,31 +194,43 @@ void EthernetComponent::setup() {
     }
 #endif
 #if CONFIG_ETH_USE_ESP32_EMAC
+#ifdef USE_ETHERNET_LAN8720
     case ETHERNET_TYPE_LAN8720: {
       this->phy_ = esp_eth_phy_new_lan87xx(&phy_config);
       break;
     }
+#endif
+#ifdef USE_ETHERNET_RTL8201
     case ETHERNET_TYPE_RTL8201: {
       this->phy_ = esp_eth_phy_new_rtl8201(&phy_config);
       break;
     }
+#endif
+#ifdef USE_ETHERNET_DP83848
     case ETHERNET_TYPE_DP83848: {
       this->phy_ = esp_eth_phy_new_dp83848(&phy_config);
       break;
     }
+#endif
+#ifdef USE_ETHERNET_IP101
     case ETHERNET_TYPE_IP101: {
       this->phy_ = esp_eth_phy_new_ip101(&phy_config);
       break;
     }
+#endif
+#ifdef USE_ETHERNET_JL1101
     case ETHERNET_TYPE_JL1101: {
       this->phy_ = esp_eth_phy_new_jl1101(&phy_config);
       break;
     }
+#endif
+#ifdef USE_ETHERNET_KSZ8081
     case ETHERNET_TYPE_KSZ8081:
     case ETHERNET_TYPE_KSZ8081RNA: {
       this->phy_ = esp_eth_phy_new_ksz80xx(&phy_config);
       break;
     }
+#endif
 #ifdef USE_ETHERNET_LAN8670
     case ETHERNET_TYPE_LAN8670: {
       this->phy_ = esp_eth_phy_new_lan867x(&phy_config);
@@ -246,15 +263,7 @@ void EthernetComponent::setup() {
   esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, this->phy_);
   this->eth_handle_ = nullptr;
   err = esp_eth_driver_install(&eth_config, &this->eth_handle_);
-  if (err != ESP_OK) {
-    if (err == ESP_ERR_INVALID_VERSION) {
-      ESP_LOGW(TAG, "Ethernet hardware (W5500) not detected - ethernet disabled");
-    } else {
-      ESP_LOGE(TAG, "ETH driver install error: (%d) %s", err, esp_err_to_name(err));
-    }
-    this->mark_failed();
-    return;
-  }
+  ESPHL_ERROR_CHECK(err, "ETH driver install error");
 
 #ifndef USE_ETHERNET_SPI
 #ifdef USE_ETHERNET_KSZ8081
@@ -309,9 +318,8 @@ void EthernetComponent::loop() {
         this->start_connect_();
       } else if (this->next_eth_retry_time_ != 0 && now >= this->next_eth_retry_time_) {
         this->next_eth_retry_time_ = now + 60000;
-        // Skip starting the driver when heap is low (e.g. during TTS) to avoid "no mem for receive buffer" flood
         const size_t free_heap = esp_get_free_heap_size();
-        const size_t min_heap_for_eth = 100 * 1024;  // 100 KB
+        const size_t min_heap_for_eth = 100 * 1024;
         if (free_heap >= min_heap_for_eth) {
           esp_err_t err = esp_eth_start(this->eth_handle_);
           if (err != ESP_OK) {
@@ -334,7 +342,9 @@ void EthernetComponent::loop() {
 
         this->dump_connect_params_();
         this->status_clear_warning();
-        this->defer([this]() { this->connected_callback_.call(); });
+#ifdef USE_ETHERNET_CONNECT_TRIGGER
+        this->connect_trigger_.trigger();
+#endif
       } else if (now - this->connect_begin_ > 15000) {
         ESP_LOGD(TAG, "No eth link yet; keeping driver active, disabling loop until link event");
         this->disable_loop();
@@ -344,12 +354,16 @@ void EthernetComponent::loop() {
       if (!this->started_) {
         ESP_LOGI(TAG, "Stopped connection");
         this->state_ = EthernetComponentState::STOPPED;
-        this->defer([this]() { this->disconnected_callback_.call(); });
+#ifdef USE_ETHERNET_DISCONNECT_TRIGGER
+        this->disconnect_trigger_.trigger();
+#endif
       } else if (!this->connected_) {
         ESP_LOGW(TAG, "Connection lost; reconnecting");
         this->state_ = EthernetComponentState::CONNECTING;
-        this->defer([this]() { this->disconnected_callback_.call(); });
         this->start_connect_();
+#ifdef USE_ETHERNET_DISCONNECT_TRIGGER
+        this->disconnect_trigger_.trigger();
+#endif
       } else {
         this->finish_connect_();
         // When connected and stable, disable the loop to save CPU cycles
@@ -362,26 +376,32 @@ void EthernetComponent::loop() {
 void EthernetComponent::dump_config() {
   const char *eth_type;
   switch (this->type_) {
+#ifdef USE_ETHERNET_LAN8720
     case ETHERNET_TYPE_LAN8720:
       eth_type = "LAN8720";
       break;
-
+#endif
+#ifdef USE_ETHERNET_RTL8201
     case ETHERNET_TYPE_RTL8201:
       eth_type = "RTL8201";
       break;
-
+#endif
+#ifdef USE_ETHERNET_DP83848
     case ETHERNET_TYPE_DP83848:
       eth_type = "DP83848";
       break;
-
+#endif
+#ifdef USE_ETHERNET_IP101
     case ETHERNET_TYPE_IP101:
       eth_type = "IP101";
       break;
-
+#endif
+#ifdef USE_ETHERNET_JL1101
     case ETHERNET_TYPE_JL1101:
       eth_type = "JL1101";
       break;
-
+#endif
+#ifdef USE_ETHERNET_KSZ8081
     case ETHERNET_TYPE_KSZ8081:
       eth_type = "KSZ8081";
       break;
@@ -389,19 +409,22 @@ void EthernetComponent::dump_config() {
     case ETHERNET_TYPE_KSZ8081RNA:
       eth_type = "KSZ8081RNA";
       break;
-
+#endif
+#if CONFIG_ETH_SPI_ETHERNET_W5500
     case ETHERNET_TYPE_W5500:
       eth_type = "W5500";
       break;
-
-    case ETHERNET_TYPE_OPENETH:
-      eth_type = "OPENETH";
-      break;
-
+#endif
+#if CONFIG_ETH_SPI_ETHERNET_DM9051
     case ETHERNET_TYPE_DM9051:
       eth_type = "DM9051";
       break;
-
+#endif
+#ifdef USE_ETHERNET_OPENETH
+    case ETHERNET_TYPE_OPENETH:
+      eth_type = "OPENETH";
+      break;
+#endif
 #ifdef USE_ETHERNET_LAN8670
     case ETHERNET_TYPE_LAN8670:
       eth_type = "LAN8670";
@@ -451,7 +474,6 @@ void EthernetComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Type: %s", eth_type);
 }
 
-// Run after WiFi so WiFi creates the default event loop and inits; we tolerate existing loop
 float EthernetComponent::get_setup_priority() const { return setup_priority::WIFI - 10.0f; }
 
 network::IPAddresses EthernetComponent::get_ip_addresses() {
@@ -501,7 +523,12 @@ void EthernetComponent::eth_event_handler(void *arg, esp_event_base_t event_base
       break;
     case ETHERNET_EVENT_CONNECTED:
       event_name = "ETH connected";
-      global_eth_component->enable_loop_soon_any_context();
+      // For static IP configurations, GOT_IP event may not fire, so notify IP listeners here
+#if defined(USE_ETHERNET_IP_STATE_LISTENERS) && defined(USE_ETHERNET_MANUAL_IP)
+      if (global_eth_component->manual_ip_.has_value()) {
+        global_eth_component->notify_ip_state_listeners_();
+      }
+#endif
       break;
     case ETHERNET_EVENT_DISCONNECTED:
       event_name = "ETH disconnected";
@@ -528,6 +555,9 @@ void EthernetComponent::got_ip_event_handler(void *arg, esp_event_base_t event_b
   global_eth_component->connected_ = true;
   global_eth_component->enable_loop_soon_any_context();  // Enable loop when connection state changes
 #endif /* USE_NETWORK_IPV6 */
+#ifdef USE_ETHERNET_IP_STATE_LISTENERS
+  global_eth_component->notify_ip_state_listeners_();
+#endif
 }
 
 #if USE_NETWORK_IPV6
@@ -544,8 +574,22 @@ void EthernetComponent::got_ip6_event_handler(void *arg, esp_event_base_t event_
   global_eth_component->connected_ = global_eth_component->got_ipv4_address_;
   global_eth_component->enable_loop_soon_any_context();  // Enable loop when connection state changes
 #endif
+#ifdef USE_ETHERNET_IP_STATE_LISTENERS
+  global_eth_component->notify_ip_state_listeners_();
+#endif
 }
 #endif /* USE_NETWORK_IPV6 */
+
+#ifdef USE_ETHERNET_IP_STATE_LISTENERS
+void EthernetComponent::notify_ip_state_listeners_() {
+  auto ips = this->get_ip_addresses();
+  auto dns1 = this->get_dns_address(0);
+  auto dns2 = this->get_dns_address(1);
+  for (auto *listener : this->ip_state_listeners_) {
+    listener->on_ip_state(ips, dns1, dns2);
+  }
+}
+#endif  // USE_ETHERNET_IP_STATE_LISTENERS
 
 void EthernetComponent::finish_connect_() {
 #if USE_NETWORK_IPV6
@@ -667,26 +711,9 @@ void EthernetComponent::start_connect_() {
 
 bool EthernetComponent::is_connected() { return this->state_ == EthernetComponentState::CONNECTED; }
 
-void EthernetComponent::add_on_connected_callback(std::function<void()> &&callback) {
-  this->connected_callback_.add(std::move(callback));
-}
-
-void EthernetComponent::add_on_disconnected_callback(std::function<void()> &&callback) {
-  this->disconnected_callback_.add(std::move(callback));
-}
-
 void EthernetComponent::dump_connect_params_() {
-  if (this->eth_netif_ == nullptr || this->eth_handle_ == nullptr) {
-    ESP_LOGW(TAG, "  Skipping IP/MAC dump: ethernet driver not initialized");
-    return;
-  }
-
   esp_netif_ip_info_t ip;
-  esp_err_t ip_err = esp_netif_get_ip_info(this->eth_netif_, &ip);
-  if (ip_err != ESP_OK) {
-    ESP_LOGW(TAG, "  esp_netif_get_ip_info failed: %s", esp_err_to_name(ip_err));
-    // Still try to dump MAC/duplex/speed below, but avoid using uninitialized ip struct.
-  }
+  esp_netif_get_ip_info(this->eth_netif_, &ip);
   const ip_addr_t *dns_ip1;
   const ip_addr_t *dns_ip2;
   {
@@ -695,26 +722,28 @@ void EthernetComponent::dump_connect_params_() {
     dns_ip2 = dns_getserver(1);
   }
 
-  if (ip_err == ESP_OK) {
-    ESP_LOGCONFIG(TAG,
-                  "  IP Address: %s\n"
-                  "  Hostname: '%s'\n"
-                  "  Subnet: %s\n"
-                  "  Gateway: %s\n"
-                  "  DNS1: %s\n"
-                  "  DNS2: %s",
-                  network::IPAddress(&ip.ip).str().c_str(), App.get_name().c_str(),
-                  network::IPAddress(&ip.netmask).str().c_str(), network::IPAddress(&ip.gw).str().c_str(),
-                  network::IPAddress(dns_ip1).str().c_str(), network::IPAddress(dns_ip2).str().c_str());
-  } else {
-    ESP_LOGCONFIG(TAG,
-                  "  Hostname: '%s'\n"
-                  "  IP Address: (unavailable)\n"
-                  "  DNS1: %s\n"
-                  "  DNS2: %s",
-                  App.get_name().c_str(), network::IPAddress(dns_ip1).str().c_str(),
-                  network::IPAddress(dns_ip2).str().c_str());
-  }
+  // Use stack buffers for IP address formatting to avoid heap allocations
+  char ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
+  char subnet_buf[network::IP_ADDRESS_BUFFER_SIZE];
+  char gateway_buf[network::IP_ADDRESS_BUFFER_SIZE];
+  char dns1_buf[network::IP_ADDRESS_BUFFER_SIZE];
+  char dns2_buf[network::IP_ADDRESS_BUFFER_SIZE];
+  char mac_buf[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+  ESP_LOGCONFIG(TAG,
+                "  IP Address: %s\n"
+                "  Hostname: '%s'\n"
+                "  Subnet: %s\n"
+                "  Gateway: %s\n"
+                "  DNS1: %s\n"
+                "  DNS2: %s\n"
+                "  MAC Address: %s\n"
+                "  Is Full Duplex: %s\n"
+                "  Link Speed: %u",
+                network::IPAddress(&ip.ip).str_to(ip_buf), App.get_name().c_str(),
+                network::IPAddress(&ip.netmask).str_to(subnet_buf), network::IPAddress(&ip.gw).str_to(gateway_buf),
+                network::IPAddress(dns_ip1).str_to(dns1_buf), network::IPAddress(dns_ip2).str_to(dns2_buf),
+                this->get_eth_mac_address_pretty_into_buffer(mac_buf),
+                YESNO(this->get_duplex_mode() == ETH_DUPLEX_FULL), this->get_link_speed() == ETH_SPEED_100M ? 100 : 10);
 
 #if USE_NETWORK_IPV6
   struct esp_ip6_addr if_ip6s[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
@@ -725,13 +754,6 @@ void EthernetComponent::dump_connect_params_() {
     ESP_LOGCONFIG(TAG, "  IPv6: " IPV6STR, IPV62STR(if_ip6s[i]));
   }
 #endif /* USE_NETWORK_IPV6 */
-
-  ESP_LOGCONFIG(TAG,
-                "  MAC Address: %s\n"
-                "  Is Full Duplex: %s\n"
-                "  Link Speed: %u",
-                this->get_eth_mac_address_pretty(), YESNO(this->get_duplex_mode() == ETH_DUPLEX_FULL),
-                this->get_link_speed() == ETH_SPEED_100M ? 100 : 10);
 }
 
 #ifdef USE_ETHERNET_SPI
@@ -742,6 +764,8 @@ void EthernetComponent::set_cs_pin(uint8_t cs_pin) { this->cs_pin_ = cs_pin; }
 void EthernetComponent::set_interrupt_pin(uint8_t interrupt_pin) { this->interrupt_pin_ = interrupt_pin; }
 void EthernetComponent::set_reset_pin(uint8_t reset_pin) { this->reset_pin_ = reset_pin; }
 void EthernetComponent::set_clock_speed(int clock_speed) { this->clock_speed_ = clock_speed; }
+void EthernetComponent::set_use_shared_spi_bus(bool use_shared) { this->use_shared_spi_bus_ = use_shared; }
+void EthernetComponent::set_spi_host(int host) { this->spi_host_ = host; }
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
 void EthernetComponent::set_polling_interval(uint32_t polling_interval) { this->polling_interval_ = polling_interval; }
 #endif
@@ -766,31 +790,25 @@ const char *EthernetComponent::get_use_address() const { return this->use_addres
 void EthernetComponent::set_use_address(const char *use_address) { this->use_address_ = use_address; }
 
 void EthernetComponent::get_eth_mac_address_raw(uint8_t *mac) {
-  if (this->eth_handle_ == nullptr) {
-    ESP_LOGW(TAG, "ETH_CMD_G_MAC skipped: ethernet handle not initialized");
-    memset(mac, 0, 6);
-    return;
-  }
-  esp_err_t err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_MAC_ADDR, mac);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "ETH_CMD_G_MAC error: %s", esp_err_to_name(err));
-    memset(mac, 0, 6);
-    return;
-  }
+  esp_err_t err;
+  err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_MAC_ADDR, mac);
+  ESPHL_ERROR_CHECK(err, "ETH_CMD_G_MAC error");
 }
 
-const char *EthernetComponent::get_eth_mac_address_pretty() {
+std::string EthernetComponent::get_eth_mac_address_pretty() {
+  char buf[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+  return std::string(this->get_eth_mac_address_pretty_into_buffer(buf));
+}
+
+const char *EthernetComponent::get_eth_mac_address_pretty_into_buffer(
+    std::span<char, MAC_ADDRESS_PRETTY_BUFFER_SIZE> buf) {
   uint8_t mac[6];
   get_eth_mac_address_raw(mac);
-  format_mac_addr_upper(mac, this->mac_pretty_buf_);
-  return this->mac_pretty_buf_;
+  format_mac_addr_upper(mac, buf.data());
+  return buf.data();
 }
 
 eth_duplex_t EthernetComponent::get_duplex_mode() {
-  if (this->eth_handle_ == nullptr) {
-    ESP_LOGW(TAG, "ETH_CMD_G_DUPLEX_MODE skipped: ethernet handle not initialized");
-    return ETH_DUPLEX_HALF;
-  }
   esp_err_t err;
   eth_duplex_t duplex_mode;
   err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_DUPLEX_MODE, &duplex_mode);
@@ -799,10 +817,6 @@ eth_duplex_t EthernetComponent::get_duplex_mode() {
 }
 
 eth_speed_t EthernetComponent::get_link_speed() {
-  if (this->eth_handle_ == nullptr) {
-    ESP_LOGW(TAG, "ETH_CMD_G_SPEED skipped: ethernet handle not initialized");
-    return ETH_SPEED_10M;
-  }
   esp_err_t err;
   eth_speed_t speed;
   err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_G_SPEED, &speed);
@@ -837,7 +851,10 @@ void EthernetComponent::ksz8081_set_clock_reference_(esp_eth_mac_t *mac) {
   uint32_t phy_control_2;
   err = mac->read_phy_reg(mac, this->phy_addr_, KSZ80XX_PC2R_REG_ADDR, &(phy_control_2));
   ESPHL_ERROR_CHECK(err, "Read PHY Control 2 failed");
-  ESP_LOGVV(TAG, "KSZ8081 PHY Control 2: %s", format_hex_pretty((u_int8_t *) &phy_control_2, 2).c_str());
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERY_VERBOSE
+  char hex_buf[format_hex_pretty_size(PHY_REG_SIZE)];
+#endif
+  ESP_LOGVV(TAG, "KSZ8081 PHY Control 2: %s", format_hex_pretty_to(hex_buf, (uint8_t *) &phy_control_2, PHY_REG_SIZE));
 
   /*
    * Bit 7 is `RMII Reference Clock Select`. Default is `0`.
@@ -854,31 +871,38 @@ void EthernetComponent::ksz8081_set_clock_reference_(esp_eth_mac_t *mac) {
     ESPHL_ERROR_CHECK(err, "Write PHY Control 2 failed");
     err = mac->read_phy_reg(mac, this->phy_addr_, KSZ80XX_PC2R_REG_ADDR, &(phy_control_2));
     ESPHL_ERROR_CHECK(err, "Read PHY Control 2 failed");
-    ESP_LOGVV(TAG, "KSZ8081 PHY Control 2: %s", format_hex_pretty((u_int8_t *) &phy_control_2, 2).c_str());
+    ESP_LOGVV(TAG, "KSZ8081 PHY Control 2: %s",
+              format_hex_pretty_to(hex_buf, (uint8_t *) &phy_control_2, PHY_REG_SIZE));
   }
 }
 #endif  // USE_ETHERNET_KSZ8081
 
 void EthernetComponent::write_phy_register_(esp_eth_mac_t *mac, PHYRegister register_data) {
   esp_err_t err;
-  constexpr uint8_t eth_phy_psr_reg_addr = 0x1F;
 
+#ifdef USE_ETHERNET_RTL8201
+  constexpr uint8_t eth_phy_psr_reg_addr = 0x1F;
   if (this->type_ == ETHERNET_TYPE_RTL8201 && register_data.page) {
     ESP_LOGD(TAG, "Select PHY Register Page: 0x%02" PRIX32, register_data.page);
     err = mac->write_phy_reg(mac, this->phy_addr_, eth_phy_psr_reg_addr, register_data.page);
     ESPHL_ERROR_CHECK(err, "Select PHY Register page failed");
   }
+#endif
 
-  ESP_LOGD(TAG, "Writing to PHY Register Address: 0x%02" PRIX32, register_data.address);
-  ESP_LOGD(TAG, "Writing to PHY Register Value: 0x%04" PRIX32, register_data.value);
+  ESP_LOGD(TAG,
+           "Writing to PHY Register Address: 0x%02" PRIX32 "\n"
+           "Writing to PHY Register Value: 0x%04" PRIX32,
+           register_data.address, register_data.value);
   err = mac->write_phy_reg(mac, this->phy_addr_, register_data.address, register_data.value);
   ESPHL_ERROR_CHECK(err, "Writing PHY Register failed");
 
+#ifdef USE_ETHERNET_RTL8201
   if (this->type_ == ETHERNET_TYPE_RTL8201 && register_data.page) {
     ESP_LOGD(TAG, "Select PHY Register Page 0x00");
     err = mac->write_phy_reg(mac, this->phy_addr_, eth_phy_psr_reg_addr, 0x0);
     ESPHL_ERROR_CHECK(err, "Select PHY Register Page 0 failed");
   }
+#endif
 }
 
 #endif
