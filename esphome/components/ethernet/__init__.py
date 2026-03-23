@@ -105,7 +105,7 @@ ESP32P4_RMII_DEFAULT_PINS = {
 
 ethernet_ns = cg.esphome_ns.namespace("ethernet")
 PHYRegister = ethernet_ns.struct("PHYRegister")
-CONF_RESOLVED_SPI_HOST = "_resolved_spi_host"
+_CONF_RESOLVED_SPI_HOST = "_resolved_spi_host"
 CONF_PHY_ADDR = "phy_addr"
 CONF_MDC_PIN = "mdc_pin"
 CONF_MDIO_PIN = "mdio_pin"
@@ -205,6 +205,15 @@ def _validate(config):
                         f"'{pin_key}' is required when 'spi_id' is not specified "
                         f"for SPI Ethernet types ({', '.join(SPI_ETHERNET_TYPES)})"
                     )
+            LOGGER.warning(
+                "[ethernet] Configuring SPI pins directly under the ethernet component "
+                "(%s, %s, %s) is deprecated and will be removed in ESPHome 2026.7.0. "
+                "Please define a 'spi:' bus component and reference it with 'spi_id:'. "
+                "See https://esphome.io/components/ethernet.html for the migration guide.",
+                CONF_CLK_PIN,
+                CONF_MISO_PIN,
+                CONF_MOSI_PIN,
+            )
 
         if _is_framework_spi_polling_mode_supported():
             if CONF_POLLING_INTERVAL in config and CONF_INTERRUPT_PIN in config:
@@ -373,12 +382,7 @@ def _final_validate_spi(config):
             raise cv.Invalid(
                 f"SPI bus '{config[CONF_SPI_ID].id}' resolved to unsupported interface '{interface}' for ethernet"
             )
-        host_idx_map = {
-            "SPI2_HOST": 1,
-            "SPI3_HOST": 2,
-        }
-        config[CONF_RESOLVED_SPI_HOST] = host_idx_map[interface]
-        print( f"Setting SPI_HOST to {interface}, index: {host_idx_map[interface]}" )
+        config[_CONF_RESOLVED_SPI_HOST] = interface
         return
 
     
@@ -421,9 +425,9 @@ async def to_code(config):
 
     if config[CONF_TYPE] in SPI_ETHERNET_TYPES:
         if CONF_SPI_ID in config:
-            cg.add(var.set_use_shared_spi_bus(True))
-            cg.add(var.set_spi_host(config[CONF_RESOLVED_SPI_HOST]))
+            cg.add(var.set_spi_host(cg.RawExpression(config[_CONF_RESOLVED_SPI_HOST])))
         else:
+            cg.add_define("USE_ETHERNET_SPI_LEGACY")
             cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
             cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
             cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))

@@ -74,37 +74,35 @@ void EthernetComponent::setup() {
 
 #ifdef USE_ETHERNET_SPI
   spi_host_device_t host;
-
-  if (this->use_shared_spi_bus_) {
-    host = (spi_host_device_t) this->spi_host_;
-  } else {
-    gpio_install_isr_service(0);
-
-    spi_bus_config_t buscfg = {
-        .mosi_io_num = this->mosi_pin_,
-        .miso_io_num = this->miso_pin_,
-        .sclk_io_num = this->clk_pin_,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .data4_io_num = -1,
-        .data5_io_num = -1,
-        .data6_io_num = -1,
-        .data7_io_num = -1,
-        .max_transfer_sz = 0,
-        .flags = 0,
-        .intr_flags = 0,
-    };
+  gpio_install_isr_service(0);  
+#ifdef USE_ETHERNET_SPI_LEGACY
+  spi_bus_config_t buscfg = {
+      .mosi_io_num = this->mosi_pin_,
+      .miso_io_num = this->miso_pin_,
+      .sclk_io_num = this->clk_pin_,
+      .quadwp_io_num = -1,
+      .quadhd_io_num = -1,
+      .data4_io_num = -1,
+      .data5_io_num = -1,
+      .data6_io_num = -1,
+      .data7_io_num = -1,
+      .max_transfer_sz = 0,
+      .flags = 0,
+      .intr_flags = 0,
+  };
 
 #if defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C5) || defined(USE_ESP32_VARIANT_ESP32C6) || \
     defined(USE_ESP32_VARIANT_ESP32C61) || defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3)
-    host = SPI2_HOST;
+  host = SPI2_HOST;
 #else
-    host = SPI3_HOST;
+  host = SPI3_HOST;
 #endif
 
-    err = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
-    ESPHL_ERROR_CHECK(err, "SPI bus initialize error");
-  }
+  err = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
+  ESPHL_ERROR_CHECK(err, "SPI bus initialize error");
+#else
+  host = this->spi_host_;
+#endif
 #endif
 
   err = esp_netif_init();
@@ -426,12 +424,13 @@ void EthernetComponent::dump_config() {
                 YESNO(this->is_connected()));
   this->dump_connect_params_();
 #ifdef USE_ETHERNET_SPI
+#ifdef USE_ETHERNET_SPI_LEGACY
   ESP_LOGCONFIG(TAG,
                 "  CLK Pin: %u\n"
                 "  MISO Pin: %u\n"
-                "  MOSI Pin: %u\n"
-                "  CS Pin: %u",
-                this->clk_pin_, this->miso_pin_, this->mosi_pin_, this->cs_pin_);
+                "  MOSI Pin: %u\n",
+                this->clk_pin_, this->miso_pin_, this->mosi_pin_);
+#endif
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
   if (this->polling_interval_ != 0) {
     ESP_LOGCONFIG(TAG, "  Polling Interval: %lu ms", this->polling_interval_);
@@ -441,9 +440,10 @@ void EthernetComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "  IRQ Pin: %d", this->interrupt_pin_);
   }
   ESP_LOGCONFIG(TAG,
+                "  CS Pin: %d\n"
                 "  Reset Pin: %d\n"
                 "  Clock Speed: %d MHz",
-                this->reset_pin_, this->clock_speed_ / 1000000);
+                this->cs_pin_, this->reset_pin_, this->clock_speed_ / 1000000);
 #else
   if (this->power_pin_ != -1) {
     ESP_LOGCONFIG(TAG, "  Power Pin: %u", this->power_pin_);
@@ -741,15 +741,10 @@ void EthernetComponent::dump_connect_params_() {
 }
 
 #ifdef USE_ETHERNET_SPI
-void EthernetComponent::set_clk_pin(uint8_t clk_pin) { this->clk_pin_ = clk_pin; }
-void EthernetComponent::set_miso_pin(uint8_t miso_pin) { this->miso_pin_ = miso_pin; }
-void EthernetComponent::set_mosi_pin(uint8_t mosi_pin) { this->mosi_pin_ = mosi_pin; }
 void EthernetComponent::set_cs_pin(uint8_t cs_pin) { this->cs_pin_ = cs_pin; }
 void EthernetComponent::set_interrupt_pin(uint8_t interrupt_pin) { this->interrupt_pin_ = interrupt_pin; }
 void EthernetComponent::set_reset_pin(uint8_t reset_pin) { this->reset_pin_ = reset_pin; }
 void EthernetComponent::set_clock_speed(int clock_speed) { this->clock_speed_ = clock_speed; }
-void EthernetComponent::set_use_shared_spi_bus(bool use_shared) { this->use_shared_spi_bus_ = use_shared; }
-void EthernetComponent::set_spi_host(int host) { this->spi_host_ = host; }
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
 void EthernetComponent::set_polling_interval(uint32_t polling_interval) { this->polling_interval_ = polling_interval; }
 #endif

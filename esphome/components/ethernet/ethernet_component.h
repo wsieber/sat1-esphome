@@ -80,15 +80,17 @@ class EthernetComponent : public Component {
   bool is_connected();
 
 #ifdef USE_ETHERNET_SPI
-  void set_clk_pin(uint8_t clk_pin);
-  void set_miso_pin(uint8_t miso_pin);
-  void set_mosi_pin(uint8_t mosi_pin);
+#ifdef USE_ETHERNET_SPI_LEGACY
+  void set_clk_pin(uint8_t pin) { this->clk_pin_ = pin; }
+  void set_miso_pin(uint8_t pin) { this->miso_pin_ = pin; }
+  void set_mosi_pin(uint8_t pin) { this->mosi_pin_ = pin; }
+#else
+  void set_spi_host(spi_host_device_t host) { this->spi_host_ = host; }
+#endif
   void set_cs_pin(uint8_t cs_pin);
   void set_interrupt_pin(uint8_t interrupt_pin);
   void set_reset_pin(uint8_t reset_pin);
   void set_clock_speed(int clock_speed);
-  void set_use_shared_spi_bus(bool use_shared);
-  void set_spi_host(int host);
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
   void set_polling_interval(uint32_t polling_interval);
 #endif
@@ -150,16 +152,18 @@ class EthernetComponent : public Component {
   void write_phy_register_(esp_eth_mac_t *mac, PHYRegister register_data);
 
 #ifdef USE_ETHERNET_SPI
+#ifdef USE_ETHERNET_SPI_LEGACY  
   uint8_t clk_pin_;
   uint8_t miso_pin_;
   uint8_t mosi_pin_;
+#else
+  spi_host_device_t spi_host_{SPI2_HOST};  
+#endif  
   uint8_t cs_pin_;
   int interrupt_pin_{-1};
   int reset_pin_{-1};
   int phy_addr_spi_{-1};
   int clock_speed_;
-  bool use_shared_spi_bus_{false};
-  int spi_host_{-1};
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
   uint32_t polling_interval_{0};
 #endif
