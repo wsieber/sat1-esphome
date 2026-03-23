@@ -107,7 +107,6 @@ external_components:
       - speaker
       - tas2780
       - ethernet
-      - iperf
 
 logger:
   deassert_rts_dtr: true
@@ -116,20 +115,3 @@ logger:
   logs:
     ltr_als_ps: WARN
     
-
-
-iperf:
-
-api:
-  actions:
-    - action: start_iperf_server
-      then:
-        - iperf.start_server:
-   
-    - action: start_iperf_client
-      variables:
-        server: string
-      then:
-        - iperf.start_client:
-            server: !lambda 'return server;'
-  encryption: !remove

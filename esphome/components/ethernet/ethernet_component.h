@@ -7,10 +7,6 @@
 #include "esphome/core/automation.h"
 #include "esphome/components/network/ip_address.h"
 
-#if USE_ETHERNET_SPI_EXT
-#include "esphome/components/spi/spi.h"
-#endif
-
 #ifdef USE_ESP32
 
 #include "esp_eth.h"
@@ -88,12 +84,11 @@ class EthernetComponent : public Component {
   void set_miso_pin(uint8_t miso_pin);
   void set_mosi_pin(uint8_t mosi_pin);
   void set_cs_pin(uint8_t cs_pin);
-#if USE_ETHERNET_SPI_EXT  
-  void set_spi_interface(SPIInterface spi_interface) { this->spi_interface_ = spi_interface; }
-#endif
   void set_interrupt_pin(uint8_t interrupt_pin);
   void set_reset_pin(uint8_t reset_pin);
   void set_clock_speed(int clock_speed);
+  void set_use_shared_spi_bus(bool use_shared);
+  void set_spi_host(int host);
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
   void set_polling_interval(uint32_t polling_interval);
 #endif
@@ -159,13 +154,12 @@ class EthernetComponent : public Component {
   uint8_t miso_pin_;
   uint8_t mosi_pin_;
   uint8_t cs_pin_;
-#if USE_ETHERNET_SPI_EXT  
-  SPIInterface spi_interface_;
-#endif  
   int interrupt_pin_{-1};
   int reset_pin_{-1};
   int phy_addr_spi_{-1};
   int clock_speed_;
+  bool use_shared_spi_bus_{false};
+  int spi_host_{-1};
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
   uint32_t polling_interval_{0};
 #endif

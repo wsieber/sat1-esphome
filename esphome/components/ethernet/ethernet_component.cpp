@@ -72,36 +72,39 @@ void EthernetComponent::setup() {
 
   esp_err_t err;
 
-#ifdef USE_ETHERNET_SPI_INT
-  // Install GPIO ISR handler to be able to service SPI Eth modules interrupts
-  gpio_install_isr_service(0);
+#ifdef USE_ETHERNET_SPI
+  spi_host_device_t host;
 
-  spi_bus_config_t buscfg = {
-      .mosi_io_num = this->mosi_pin_,
-      .miso_io_num = this->miso_pin_,
-      .sclk_io_num = this->clk_pin_,
-      .quadwp_io_num = -1,
-      .quadhd_io_num = -1,
-      .data4_io_num = -1,
-      .data5_io_num = -1,
-      .data6_io_num = -1,
-      .data7_io_num = -1,
-      .max_transfer_sz = 0,
-      .flags = 0,
-      .intr_flags = 0,
-  };
+  if (this->use_shared_spi_bus_) {
+    host = (spi_host_device_t) this->spi_host_;
+  } else {
+    gpio_install_isr_service(0);
+
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = this->mosi_pin_,
+        .miso_io_num = this->miso_pin_,
+        .sclk_io_num = this->clk_pin_,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .data4_io_num = -1,
+        .data5_io_num = -1,
+        .data6_io_num = -1,
+        .data7_io_num = -1,
+        .max_transfer_sz = 0,
+        .flags = 0,
+        .intr_flags = 0,
+    };
 
 #if defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C5) || defined(USE_ESP32_VARIANT_ESP32C6) || \
     defined(USE_ESP32_VARIANT_ESP32C61) || defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3)
-  auto host = SPI2_HOST;
+    host = SPI2_HOST;
 #else
-  auto host = SPI3_HOST;
+    host = SPI3_HOST;
 #endif
 
-  err = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
-  ESPHL_ERROR_CHECK(err, "SPI bus initialize error");
-#elif defined(USE_ETHERNET_SPI)
-  auto host = SPI2_HOST;
+    err = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
+    ESPHL_ERROR_CHECK(err, "SPI bus initialize error");
+  }
 #endif
 
   err = esp_netif_init();
@@ -745,6 +748,8 @@ void EthernetComponent::set_cs_pin(uint8_t cs_pin) { this->cs_pin_ = cs_pin; }
 void EthernetComponent::set_interrupt_pin(uint8_t interrupt_pin) { this->interrupt_pin_ = interrupt_pin; }
 void EthernetComponent::set_reset_pin(uint8_t reset_pin) { this->reset_pin_ = reset_pin; }
 void EthernetComponent::set_clock_speed(int clock_speed) { this->clock_speed_ = clock_speed; }
+void EthernetComponent::set_use_shared_spi_bus(bool use_shared) { this->use_shared_spi_bus_ = use_shared; }
+void EthernetComponent::set_spi_host(int host) { this->spi_host_ = host; }
 #ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
 void EthernetComponent::set_polling_interval(uint32_t polling_interval) { this->polling_interval_ = polling_interval; }
 #endif

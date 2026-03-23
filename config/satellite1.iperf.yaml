@@ -1,0 +1,31 @@
+packages:
+  - !include satellite1.yaml
+
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+
+external_components:
+  - source:
+      type: local
+      path: ../esphome/components
+    components:
+      - iperf
+
+iperf:
+
+api:
+  actions:
+    - action: start_iperf_server
+      then:
+        - iperf.start_server:
+    - action: start_iperf_client
+      variables:
+        server: string
+        duration: int
+      then:
+        - iperf.start_client:
+            server: !lambda 'return server;'
+            duration: !lambda 'return duration;'
+  encryption: !remove

@@ -569,12 +569,12 @@ script:
           effect: "Twinkle"
 
   # Script executed during initialization
-  # Blue Twinkle if Wifi is connected, Else solid warm white
+  # Blue Twinkle if network is connected, Else solid warm white
   - id: control_leds_init_state
     then:
       - if:
           condition:
-            - lambda: 'return true;'
+            - lambda: 'return id(network_setup_completed);'
           then:
             - light.turn_on:
                 brightness: 66%

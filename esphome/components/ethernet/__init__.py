@@ -198,6 +198,14 @@ def _validate(config):
         config[CONF_USE_ADDRESS] = use_address
 
     if config[CONF_TYPE] in SPI_ETHERNET_TYPES:
+        if CONF_SPI_ID not in config:
+            for pin_key in (CONF_CLK_PIN, CONF_MISO_PIN, CONF_MOSI_PIN):
+                if pin_key not in config:
+                    raise cv.Invalid(
+                        f"'{pin_key}' is required when 'spi_id' is not specified "
+                        f"for SPI Ethernet types ({', '.join(SPI_ETHERNET_TYPES)})"
+                    )
+
         if _is_framework_spi_polling_mode_supported():
             if CONF_POLLING_INTERVAL in config and CONF_INTERRUPT_PIN in config:
                 raise cv.Invalid(
@@ -294,7 +302,7 @@ SPI_SCHEMA = BASE_SCHEMA.extend(
             cv.Optional(CONF_CLK_PIN): pins.internal_gpio_output_pin_number,
             cv.Optional(CONF_MISO_PIN): pins.internal_gpio_input_pin_number,
             cv.Optional(CONF_MOSI_PIN): pins.internal_gpio_output_pin_number,
-            cv.Optional(CONF_CS_PIN): pins.internal_gpio_output_pin_number,
+            cv.Required(CONF_CS_PIN): pins.internal_gpio_output_pin_number,
             cv.Optional(CONF_INTERRUPT_PIN): pins.internal_gpio_input_pin_number,
             cv.Optional(CONF_RESET_PIN): pins.internal_gpio_output_pin_number,
             cv.Optional(CONF_CLOCK_SPEED, default="26.67MHz"): cv.All(
@@ -306,7 +314,7 @@ SPI_SCHEMA = BASE_SCHEMA.extend(
                 cv.Range(min=TimePeriodMilliseconds(milliseconds=1)),
             ),
         }
-    )
+    ),
 )
 
 CONFIG_SCHEMA = cv.All(
@@ -365,10 +373,15 @@ def _final_validate_spi(config):
             raise cv.Invalid(
                 f"SPI bus '{config[CONF_SPI_ID].id}' resolved to unsupported interface '{interface}' for ethernet"
             )
-        config[CONF_RESOLVED_SPI_HOST] = interface
-        print( f"Setting SPI_HOST to {interface}" )
+        host_idx_map = {
+            "SPI2_HOST": 1,
+            "SPI3_HOST": 2,
+        }
+        config[CONF_RESOLVED_SPI_HOST] = host_idx_map[interface]
+        print( f"Setting SPI_HOST to {interface}, index: {host_idx_map[interface]}" )
         return
 
+    
     spi_host = _get_default_spi_host()
     if spi_configs := fv.full_config.get().get(CONF_SPI):
         for spi_conf in spi_configs:
@@ -379,7 +392,6 @@ def _final_validate_spi(config):
                         f"`spi` component is using interface '{interface}'. "
                         f"To use {config[CONF_TYPE]}, you must change the `interface` on the `spi` component.",
                     )
-    config[CONF_RESOLVED_SPI_HOST] = spi_host
 
 
 def manual_ip(config):
@@ -408,15 +420,14 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     if config[CONF_TYPE] in SPI_ETHERNET_TYPES:
-        #cg.add(var.set_use_external_spi_bus(CONF_SPI_ID in config))
         if CONF_SPI_ID in config:
-            cg.add(var.set_spi_interface(cg.RawExpression(config[CONF_RESOLVED_SPI_HOST])))
-            cg.add_define("USE_ETHERNET_SPI_EXT")
+            cg.add(var.set_use_shared_spi_bus(True))
+            cg.add(var.set_spi_host(config[CONF_RESOLVED_SPI_HOST]))
         else:
             cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
             cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
             cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
-            cg.add_define("USE_ETHERNET_SPI_INT")
+
         cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
         if CONF_INTERRUPT_PIN in config:
             cg.add(var.set_interrupt_pin(config[CONF_INTERRUPT_PIN]))
