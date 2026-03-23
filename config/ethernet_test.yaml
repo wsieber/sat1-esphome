@@ -1,0 +1,73 @@
+
+esphome:
+  name: sat1-ethernet
+  #name_add_mac_suffix: true
+  friendly_name: Satellite1 Ethernet
+  min_version: 2025.12.0
+  
+  platformio_options:
+    board_build.flash_mode: dio
+    board_upload.maximum_size: 16777216
+
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+    sdkconfig_options:
+      CONFIG_LWIP_TCP_SND_BUF_DEFAULT: "65535"
+      CONFIG_LWIP_TCP_WND_DEFAULT: "65535"
+      CONFIG_LWIP_TCP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_UDP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCPIP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_IRAM_OPTIMIZATION: "y"
+      CONFIG_LWIP_TCPIP_TASK_PRIO: "23"
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240: "y"
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ: "240"
+      CONFIG_ESPTOOLPY_FLASHMODE_QIO: "y"
+      CONFIG_ESPTOOLPY_FLASHFREQ_80M: "y"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+
+
+external_components:
+  - source:
+      type: local
+      path: ../esphome/components
+    components:
+      - ethernet
+      - iperf
+
+
+ethernet:
+  type: W5500
+  cs_pin: GPIO3
+  clk_pin: GPIO12
+  mosi_pin: GPIO11
+  miso_pin: GPIO13
+
+logger:
+  deassert_rts_dtr: true
+  hardware_uart: USB_SERIAL_JTAG
+  level: debug
+  logs:
+    ltr_als_ps: WARN
+
+iperf:
+
+api:
+  actions:
+    - action: start_iperf_server
+      then:
+        - iperf.start_server:
+   
+    - action: start_iperf_client
+      variables:
+        server: string
+        duration: int
+      then:
+        - iperf.start_client:
+            server: !lambda 'return server;'
+            duration: !lambda 'return duration;'
