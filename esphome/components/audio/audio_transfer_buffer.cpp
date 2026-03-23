@@ -208,6 +208,9 @@ size_t TimedAudioSourceTransferBuffer::transfer_data_from_source(TickType_t tick
                                         ticks_to_wait - elapsed);
     if (read_now <= 0) {
       // next chunk doesn't fit into free space
+      if (new_time_stamp > tv_t(0, 0)) {
+        this->current_time_stamp_ = new_time_stamp;
+      }
       return bytes_read;
     }
 
@@ -223,9 +226,7 @@ size_t TimedAudioSourceTransferBuffer::transfer_data_from_source(TickType_t tick
         printf("transfer-from-source: read: %d, avialable: %d\n", read_now, this->available());
       }
 #endif
-      if (this->available() == read_now) {
-        this->current_time_stamp_ = new_time_stamp;
-      }
+      this->current_time_stamp_ = new_time_stamp;
       break;  // Process only one chunk if timestamp present
     }
   }
