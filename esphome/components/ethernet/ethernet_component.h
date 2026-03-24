@@ -64,6 +64,7 @@ struct PHYRegister {
 };
 
 enum class EthernetComponentState : uint8_t {
+  DISABLED,
   STOPPED,
   CONNECTING,
   CONNECTED,
@@ -78,6 +79,9 @@ class EthernetComponent : public Component {
   float get_setup_priority() const override;
   void on_powerdown() override { powerdown(); }
   bool is_connected();
+  bool is_disabled() const { return this->state_ == EthernetComponentState::DISABLED; }
+  void disable();
+  void enable();
 
 #ifdef USE_ETHERNET_SPI
 #ifdef USE_ETHERNET_SPI_LEGACY
@@ -119,6 +123,8 @@ class EthernetComponent : public Component {
   eth_duplex_t get_duplex_mode();
   eth_speed_t get_link_speed();
   bool powerdown();
+  void set_connect_timeout(uint32_t connect_timeout_ms) { this->connect_timeout_ms_ = connect_timeout_ms; }
+
 
 #ifdef USE_ETHERNET_IP_STATE_LISTENERS
   void add_ip_state_listener(EthernetIPStateListener *listener) { this->ip_state_listeners_.push_back(listener); }
@@ -129,6 +135,12 @@ class EthernetComponent : public Component {
 #endif
 #ifdef USE_ETHERNET_DISCONNECT_TRIGGER
   Trigger<> *get_disconnect_trigger() { return &this->disconnect_trigger_; }
+#endif
+#ifdef USE_ETHERNET_DISABLE_TRIGGER
+  Trigger<> *get_disable_trigger() { return &this->disable_trigger_; }
+#endif
+#ifdef USE_ETHERNET_TIMEOUT_TRIGGER
+  Trigger<> *get_timeout_trigger() { return &this->timeout_trigger_; }
 #endif
  protected:
   static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
@@ -143,6 +155,8 @@ class EthernetComponent : public Component {
   void start_connect_();
   void finish_connect_();
   void dump_connect_params_();
+  bool init_();
+  void deinit_();
   void log_error_and_mark_failed_(esp_err_t err, const char *message);
 #ifdef USE_ETHERNET_KSZ8081
   /// @brief Set `RMII Reference Clock Select` bit for KSZ8081.
@@ -156,9 +170,9 @@ class EthernetComponent : public Component {
   uint8_t clk_pin_;
   uint8_t miso_pin_;
   uint8_t mosi_pin_;
-#else
-  spi_host_device_t spi_host_{SPI2_HOST};  
+  bool spi_bus_initialized_{false};  
 #endif  
+  spi_host_device_t spi_host_{SPI2_HOST};  
   uint8_t cs_pin_;
   int interrupt_pin_{-1};
   int reset_pin_{-1};
@@ -183,6 +197,7 @@ class EthernetComponent : public Component {
   optional<ManualIP> manual_ip_{};
 #endif
   uint32_t connect_begin_;
+  uint32_t connect_timeout_ms_{15000};
 
   // Group all uint8_t types together (enums and bools)
   EthernetType type_{ETHERNET_TYPE_UNKNOWN};
@@ -197,8 +212,10 @@ class EthernetComponent : public Component {
 
   // Pointers at the end (naturally aligned)
   esp_netif_t *eth_netif_{nullptr};
-  esp_eth_handle_t eth_handle_;
+  esp_eth_netif_glue_handle_t eth_netif_glue_{nullptr};
+  esp_eth_handle_t eth_handle_{nullptr};
   esp_eth_phy_t *phy_{nullptr};
+  bool event_handlers_registered_{false};
   optional<std::array<uint8_t, 6>> fixed_mac_;
 
 #ifdef USE_ETHERNET_IP_STATE_LISTENERS
@@ -210,6 +227,12 @@ class EthernetComponent : public Component {
 #endif
 #ifdef USE_ETHERNET_DISCONNECT_TRIGGER
   Trigger<> disconnect_trigger_;
+#endif
+#ifdef USE_ETHERNET_DISABLE_TRIGGER
+  Trigger<> disable_trigger_;
+#endif
+#ifdef USE_ETHERNET_TIMEOUT_TRIGGER
+Trigger<> timeout_trigger_;
 #endif
  private:
   // Stores a pointer to a string literal (static storage duration).

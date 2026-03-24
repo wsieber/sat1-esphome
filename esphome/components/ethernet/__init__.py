@@ -60,7 +60,7 @@ from esphome.core import (
 import esphome.final_validate as fv
 from esphome.types import ConfigType
 
-CONFLICTS_WITH = ["wifi"]
+# CONFLICTS_WITH = ["wifi"]
 DEPENDENCIES = ["esp32"]
 AUTO_LOAD = ["network"]
 LOGGER = logging.getLogger(__name__)
@@ -115,6 +115,9 @@ CONF_POWER_PIN = "power_pin"
 CONF_PHY_REGISTERS = "phy_registers"
 
 CONF_CLOCK_SPEED = "clock_speed"
+CONF_ON_DISABLE = "on_disable"
+CONF_ON_CONNECT_TIMEOUT = "on_connect_timeout"
+CONF_CONNECT_TIMEOUT = "connect_timeout"
 
 EthernetType = ethernet_ns.enum("EthernetType")
 ETHERNET_TYPES = {
@@ -173,6 +176,12 @@ MANUAL_IP_SCHEMA = cv.Schema(
 
 EthernetComponent = ethernet_ns.class_("EthernetComponent", cg.Component)
 ManualIP = ethernet_ns.struct("ManualIP")
+EnableAction = ethernet_ns.class_(
+    "EnableAction", automation.Action, cg.Parented.template(EthernetComponent)
+)
+DisableAction = ethernet_ns.class_(
+    "DisableAction", automation.Action, cg.Parented.template(EthernetComponent)
+)
 
 
 def _is_framework_spi_polling_mode_supported():
@@ -272,6 +281,13 @@ BASE_SCHEMA = cv.Schema(
         cv.Optional(CONF_MAC_ADDRESS): cv.mac_address,
         cv.Optional(CONF_ON_CONNECT): automation.validate_automation(single=True),
         cv.Optional(CONF_ON_DISCONNECT): automation.validate_automation(single=True),
+        
+        cv.Optional(CONF_ON_CONNECT_TIMEOUT): automation.validate_automation(single=True),
+        cv.Optional(CONF_CONNECT_TIMEOUT, default="15s"): cv.All(
+            cv.positive_time_period_milliseconds,
+            cv.Range(min=TimePeriodMilliseconds(milliseconds=1)),
+        ),
+        cv.Optional(CONF_ON_DISABLE): automation.validate_automation(single=True),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -465,7 +481,7 @@ async def to_code(config):
             )
             cg.add(var.add_phy_register(reg))
 
-    cg.add(var.set_type(ETHERNET_TYPES[config[CONF_TYPE]]))
+    cg.add(var.set_type(ETHERNET_TYPES[config[CONF_TYPE]]))    
     cg.add(var.set_use_address(config[CONF_USE_ADDRESS]))
 
     if CONF_MANUAL_IP in config:
@@ -482,9 +498,9 @@ async def to_code(config):
     cg.add_define("USE_ETHERNET")
 
     # Disable WiFi when using Ethernet to save memory
-    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_ENABLED", False)
+    # add_idf_sdkconfig_option("CONFIG_ESP_WIFI_ENABLED", False)
     # Also disable WiFi/BT coexistence since WiFi is disabled
-    add_idf_sdkconfig_option("CONFIG_SW_COEXIST_ENABLE", False)
+    # add_idf_sdkconfig_option("CONFIG_SW_COEXIST_ENABLE", False)
 
     # Re-enable ESP-IDF's Ethernet driver (excluded by default to save compile time)
     include_builtin_idf_component("esp_eth")
@@ -504,7 +520,20 @@ async def to_code(config):
         await automation.build_automation(
             var.get_disconnect_trigger(), [], on_disconnect_config
         )
-
+    
+    if on_disable_config := config.get(CONF_ON_DISABLE):
+        cg.add_define("USE_ETHERNET_DISABLE_TRIGGER")
+        await automation.build_automation(
+            var.get_disable_trigger(), [], on_disable_config
+        )
+    
+    cg.add(var.set_connect_timeout(config[CONF_CONNECT_TIMEOUT]))
+    if on_timeout_config := config.get(CONF_ON_CONNECT_TIMEOUT):
+        cg.add_define("USE_ETHERNET_TIMEOUT_TRIGGER")
+        await automation.build_automation(
+            var.get_timeout_trigger(), [], on_timeout_config
+        )
+    
     CORE.add_job(final_step)
 
 
@@ -563,6 +592,20 @@ def _final_validate(config: ConfigType) -> ConfigType:
 
 
 FINAL_VALIDATE_SCHEMA = _final_validate
+
+ETHERNET_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.use_id(EthernetComponent),
+    }
+)
+
+
+@automation.register_action("ethernet.enable", EnableAction, ETHERNET_ACTION_SCHEMA)
+@automation.register_action("ethernet.disable", DisableAction, ETHERNET_ACTION_SCHEMA)
+async def ethernet_action(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
 
 
 @coroutine_with_priority(CoroPriority.FINAL)

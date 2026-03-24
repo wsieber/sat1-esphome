@@ -75,16 +75,18 @@ logger:
 iperf:
 
 api:
-  actions:
-    - action: start_iperf_server
-      then:
-        - iperf.start_server:
+
+# api:
+#   actions:
+#     - action: start_iperf_server
+#       then:
+#         - iperf.start_server:
    
-    - action: start_iperf_client
-      variables:
-        server: string
-        duration: int
-      then:
-        - iperf.start_client:
-            server: !lambda 'return server;'
-            duration: !lambda 'return duration;'
+#     - action: start_iperf_client
+#       variables:
+#         server: string
+#         duration: int
+#       then:
+#         - iperf.start_client:
+#             server: !lambda 'return server;'
+#             duration: !lambda 'return duration;'

@@ -4,6 +4,13 @@ substitutions:
 
   # set this version by GHA at build time
   esp32_fw_version: dev
+  wifi_config: !include
+    file: common/wifi_improv.yaml
+  ethernet_config: !include
+    file: common/ethernet.yaml
+  
+  # select network [wifi|ethernet]
+  network: wifi
 
 globals:
   - id: network_setup_completed
@@ -14,7 +21,6 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
-
 
 packages:
   # This is an inline package to prefix the on_client_connected with the wait_until action
@@ -52,7 +58,9 @@ packages:
               then:
                 - memory_flasher.write_embedded_image:
 
-  home-assistant-voice: !include satellite1.base.yaml
+  base: !include satellite1.base.yaml
+  wifi: ${ wifi_config if network == "wifi" or network == "unified" else {} }
+  ethernet: ${ ethernet_config if network == "ethernet" or network == "unified" else {} }
 
 esphome:
   project:
@@ -107,6 +115,7 @@ external_components:
       - speaker
       - tas2780
       - ethernet
+      - improv_serial
 
 logger:
   deassert_rts_dtr: true
@@ -114,4 +123,7 @@ logger:
   level: debug
   logs:
     ltr_als_ps: WARN
+
+
     
+

@@ -55,7 +55,7 @@ esphome:
             if( !id(line_out_sensor).state && id(dac_proxy).active_dac == 1){
               id(dac_proxy).activate_speaker();
             }
-
+        
         # If after 10 minutes, the device is still initializing (It did not yet connect to Home Assistant), turn off the init_in_progress variable and run the script to refresh the LED status
         - delay: 10min
         - if:
@@ -75,8 +75,6 @@ dashboard_import:
 
 packages:
   core_board: !include common/core_board.yaml
-  #wifi: !include common/wifi_improv.yaml
-  ethernet: !include common/ethernet.yaml
   sensors: !include common/hat_sensors.yaml
   buttons: !include common/buttons.yaml
   ha: !include common/home_assistant.yaml

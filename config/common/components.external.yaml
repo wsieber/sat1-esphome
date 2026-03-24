@@ -19,3 +19,4 @@ external_components:
       - snapcast
       - speaker
       - tas2780
+      - improv_serial

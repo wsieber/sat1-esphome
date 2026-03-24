@@ -69,6 +69,35 @@ void EthernetComponent::setup() {
     // Delay here to allow power to stabilise before Ethernet is initialized.
     delay(300);  // NOLINT
   }
+  
+  esp_err_t err = esp_netif_init();
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "ETH netif init error: (%d) %s", err, esp_err_to_name(err));
+    this->mark_failed();
+    return;
+  }
+  
+  err = esp_event_loop_create_default();
+  if (err == ESP_ERR_INVALID_STATE) {
+    // Default loop already exists (e.g. WiFi ran first); use it
+    err = ESP_OK;
+  }
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "ETH event loop error: (%d) %s", err, esp_err_to_name(err));
+    this->mark_failed();
+    return;
+  }
+
+  if (!this->init_()) {
+    this->disable();
+    this->mark_failed();
+  }
+}
+
+bool EthernetComponent::init_() {
+  if (this->eth_handle_ != nullptr || this->eth_netif_ != nullptr) {
+    return true;
+  }
 
   esp_err_t err;
 
@@ -97,21 +126,24 @@ void EthernetComponent::setup() {
 #else
   host = SPI3_HOST;
 #endif
-
+  this->spi_host_ = host;
   err = spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
-  ESPHL_ERROR_CHECK(err, "SPI bus initialize error");
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "SPI bus initialize error");
+    return false;
+  }
 #else
   host = this->spi_host_;
 #endif
 #endif
 
-  err = esp_netif_init();
-  ESPHL_ERROR_CHECK(err, "ETH netif init error");
-  err = esp_event_loop_create_default();
-  ESPHL_ERROR_CHECK(err, "ETH event loop error");
-
+  
   esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
   this->eth_netif_ = esp_netif_new(&cfg);
+  if (this->eth_netif_ == nullptr) {
+    ESP_LOGE(TAG, "ETH netif creation error");
+    return false;
+  }
 
   // Init MAC and PHY configs to default
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
@@ -250,15 +282,22 @@ void EthernetComponent::setup() {
 #endif
 #endif
     default: {
-      this->mark_failed();
-      return;
+      ESP_LOGE(TAG, "Unknown ethernet type");
+      return false;
     }
   }
 
   esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, this->phy_);
   this->eth_handle_ = nullptr;
   err = esp_eth_driver_install(&eth_config, &this->eth_handle_);
-  ESPHL_ERROR_CHECK(err, "ETH driver install error");
+  if (err != ESP_OK) {
+    if (err == ESP_ERR_INVALID_VERSION) {
+      ESP_LOGW(TAG, "Ethernet hardware (W5500) not detected - ethernet disabled");
+    } else {
+      ESP_LOGE(TAG, "ETH driver install error: (%d) %s", err, esp_err_to_name(err));
+    }
+    return false;
+  }
 
 #ifndef USE_ETHERNET_SPI
 #ifdef USE_ETHERNET_KSZ8081
@@ -281,31 +320,120 @@ void EthernetComponent::setup() {
     esp_read_mac(mac_addr, ESP_MAC_ETH);
   }
   err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_S_MAC_ADDR, mac_addr);
-  ESPHL_ERROR_CHECK(err, "set mac address error");
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "set mac address error: (%d) %s", err, esp_err_to_name(err));
+    return false;
+  }
 
   /* attach Ethernet driver to TCP/IP stack */
-  err = esp_netif_attach(this->eth_netif_, esp_eth_new_netif_glue(this->eth_handle_));
-  ESPHL_ERROR_CHECK(err, "ETH netif attach error");
+  this->eth_netif_glue_ = esp_eth_new_netif_glue(this->eth_handle_);
+  if (this->eth_netif_glue_ == nullptr) {
+    ESP_LOGE(TAG, "ETH netif glue create error");
+    return false;
+  }
+  err = esp_netif_attach(this->eth_netif_, this->eth_netif_glue_);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "ETH netif attach error: (%d) %s", err, esp_err_to_name(err));
+    return false;
+  }
 
   // Register user defined event handers
   err = esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &EthernetComponent::eth_event_handler, nullptr);
-  ESPHL_ERROR_CHECK(err, "ETH event handler register error");
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "ETH event handler register error: (%d) %s", err, esp_err_to_name(err));
+    return false;
+  }
   err = esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &EthernetComponent::got_ip_event_handler, nullptr);
-  ESPHL_ERROR_CHECK(err, "GOT IP event handler register error");
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "GOT IP event handler register error: (%d) %s", err, esp_err_to_name(err));
+    return false;
+  }
 #if USE_NETWORK_IPV6
   err = esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &EthernetComponent::got_ip6_event_handler, nullptr);
-  ESPHL_ERROR_CHECK(err, "GOT IPv6 event handler register error");
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "GOT IPv6 event handler register error: (%d) %s", err, esp_err_to_name(err));
+    return false;
+  }
 #endif /* USE_NETWORK_IPV6 */
+  this->event_handlers_registered_ = true;
 
   /* start Ethernet driver state machine */
   err = esp_eth_start(this->eth_handle_);
-  ESPHL_ERROR_CHECK(err, "ETH start error");
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "ETH start error: (%d) %s", err, esp_err_to_name(err));
+    return false;
+  }
+  return true;
+}
+
+void EthernetComponent::deinit_() {
+  if (this->eth_handle_ != nullptr) {
+    esp_err_t err = esp_eth_stop(this->eth_handle_);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+      ESP_LOGW(TAG, "esp_eth_stop failed during teardown: %s", esp_err_to_name(err));
+    }
+  }
+
+  if (this->phy_ != nullptr) {
+    esp_err_t err = this->phy_->pwrctl(this->phy_, false);
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "Error powering down ethernet PHY during teardown: %s", esp_err_to_name(err));
+    }
+  }
+
+  if (this->event_handlers_registered_) {
+    esp_event_handler_unregister(ETH_EVENT, ESP_EVENT_ANY_ID, &EthernetComponent::eth_event_handler);
+    esp_event_handler_unregister(IP_EVENT, IP_EVENT_ETH_GOT_IP, &EthernetComponent::got_ip_event_handler);
+#if USE_NETWORK_IPV6
+    esp_event_handler_unregister(IP_EVENT, IP_EVENT_GOT_IP6, &EthernetComponent::got_ip6_event_handler);
+#endif
+    this->event_handlers_registered_ = false;
+  }
+
+  if (this->eth_netif_glue_ != nullptr) {
+    esp_err_t err = esp_eth_del_netif_glue(this->eth_netif_glue_);
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "ETH netif glue delete error: %s", esp_err_to_name(err));
+    }
+    this->eth_netif_glue_ = nullptr;
+  }
+
+  if (this->eth_netif_ != nullptr) {
+    esp_netif_destroy(this->eth_netif_);
+    this->eth_netif_ = nullptr;
+  }
+
+  if (this->eth_handle_ != nullptr) {
+    esp_err_t err = esp_eth_driver_uninstall(this->eth_handle_);
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "ETH driver uninstall error: %s", esp_err_to_name(err));
+    }
+    this->eth_handle_ = nullptr;
+  }
+
+#ifdef USE_ETHERNET_SPI
+#ifdef USE_ETHERNET_SPI_LEGACY  
+  if (this->spi_bus_initialized_) {
+    esp_err_t err = spi_bus_free(this->spi_host_);
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "SPI bus free error: %s", esp_err_to_name(err));
+    }
+    this->spi_bus_initialized_ = false;
+  }
+#endif
+#endif
+
+  this->phy_ = nullptr;
+  this->started_ = false;
+  this->connected_ = false;
 }
 
 void EthernetComponent::loop() {
   const uint32_t now = App.get_loop_component_start_time();
 
   switch (this->state_) {
+    case EthernetComponentState::DISABLED:
+      break;
     case EthernetComponentState::STOPPED:
       if (this->started_) {
         ESP_LOGI(TAG, "Starting connection");
@@ -327,8 +455,11 @@ void EthernetComponent::loop() {
 #ifdef USE_ETHERNET_CONNECT_TRIGGER
         this->connect_trigger_.trigger();
 #endif
-      } else if (now - this->connect_begin_ > 15000) {
+      } else if (now - this->connect_begin_ > this->connect_timeout_ms_) {
         ESP_LOGW(TAG, "Connecting failed; reconnecting");
+#ifdef USE_ETHERNET_TIMEOUT_TRIGGER
+        this->timeout_trigger_.trigger();
+#endif        
         this->start_connect_();
       }
       break;
@@ -356,6 +487,7 @@ void EthernetComponent::loop() {
 }
 
 void EthernetComponent::dump_config() {
+  
   const char *eth_type;
   switch (this->type_) {
 #ifdef USE_ETHERNET_LAN8720
@@ -417,7 +549,12 @@ void EthernetComponent::dump_config() {
       eth_type = "Unknown";
       break;
   }
-
+  ESP_LOGCONFIG(TAG, "Ethernet:");
+  ESP_LOGCONFIG(TAG, "  Type: %s", eth_type);
+  if (this->eth_handle_ == nullptr || this->eth_netif_ == nullptr) {
+    ESP_LOGCONFIG(TAG, "  Status: Disabled (not initialized)");
+    return;
+  }
   ESP_LOGCONFIG(TAG,
                 "Ethernet:\n"
                 "  Connected: %s",
@@ -524,6 +661,59 @@ void EthernetComponent::eth_event_handler(void *arg, esp_event_base_t event_base
   }
 
   ESP_LOGV(TAG, "[Ethernet event] %s (num=%" PRId32 ")", event_name, event);
+}
+
+void EthernetComponent::disable() {
+  if (this->state_ == EthernetComponentState::DISABLED) {
+    return;
+  }
+
+  const bool was_connected = this->connected_;
+  ESP_LOGI(TAG, "Disabling ethernet until explicitly re-enabled");
+  this->got_ipv4_address_ = false;
+#if USE_NETWORK_IPV6
+  this->ipv6_count_ = 0;
+  this->ipv6_setup_done_ = false;
+#endif
+  this->connected_ = false;
+  this->deinit_();
+  this->state_ = EthernetComponentState::DISABLED;
+  this->disable_loop();
+  if (was_connected) {
+#ifdef USE_ETHERNET_DISCONNECT_TRIGGER
+    this->disconnect_trigger_.trigger();
+#endif
+  }
+#ifdef USE_ETHERNET_DISABLE_TRIGGER
+    this->disable_trigger_.trigger();
+#endif  
+}
+
+void EthernetComponent::enable() {
+  if (this->state_ != EthernetComponentState::DISABLED) {
+    return;
+  }
+
+  ESP_LOGI(TAG, "Enabling ethernet and reconnecting");
+  delay(300);  // NOLINT
+
+  this->connected_ = false;
+  this->started_ = false;
+  this->got_ipv4_address_ = false;
+#if USE_NETWORK_IPV6
+  this->ipv6_count_ = 0;
+  this->ipv6_setup_done_ = false;
+#endif
+  this->state_ = EthernetComponentState::STOPPED;
+  this->status_set_warning();
+  this->enable_loop();
+
+  if (!this->init_()) {
+    this->deinit_();
+    ESP_LOGW(TAG, "Failed to reinitialize ethernet");
+    this->state_ = EthernetComponentState::DISABLED;
+    this->disable_loop();
+  }
 }
 
 void EthernetComponent::got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id,

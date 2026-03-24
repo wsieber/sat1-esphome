@@ -1,5 +1,8 @@
 packages:
-  - !include satellite1.yaml
+  sat1: !include
+    file: satellite1.yaml
+    vars:
+      network: ethernet
 
 esp32:
   framework:

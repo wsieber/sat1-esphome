@@ -1,6 +1,7 @@
 
 wifi:
   id: wifi_id
+  #enable_on_boot: False
   on_connect:
     - delay: 5s  # Gives time for improv results to be transmitted
     - ble.disable:
@@ -16,6 +17,7 @@ wifi:
     - ble.enable:
 
 improv_serial:
+
 
 esp32_improv:
   authorizer: btn_action
