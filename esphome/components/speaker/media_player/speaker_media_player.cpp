@@ -113,6 +113,20 @@ void SpeakerMediaPlayer::set_playlist_delay_ms(AudioPipelineType pipeline_type, 
   }
 }
 
+void SpeakerMediaPlayer::stop_and_unpause_media_() {
+  this->media_pipeline_->stop();
+  this->unpause_media_remaining_ = 3;
+  this->set_interval("unpause_med", 50, [this]() {
+    if (this->media_pipeline_state_ == AudioPipelineState::STOPPED) {
+      this->cancel_interval("unpause_med");
+      this->media_pipeline_->set_pause_state(false);
+      this->is_paused_ = false;
+    } else if (--this->unpause_media_remaining_ == 0) {
+      this->cancel_interval("unpause_med");
+    }
+  });
+}
+
 void SpeakerMediaPlayer::watch_media_commands_() {
   if (!this->is_ready()) {
     return;
@@ -150,16 +164,9 @@ void SpeakerMediaPlayer::watch_media_commands_() {
           if (this->is_paused_) {
             // If paused, stop the media pipeline and unpause it after confirming its stopped. This avoids playing a
             // short segment of the paused file before starting the new one.
-            this->media_pipeline_->stop();
-            this->set_retry("unpause_med", 50, 3, [this](const uint8_t remaining_attempts) {
-              if (this->media_pipeline_state_ == AudioPipelineState::STOPPED) {
-                this->media_pipeline_->set_pause_state(false);
-                this->is_paused_ = false;
-                return RetryResult::DONE;
-              }
-              return RetryResult::RETRY;
-            });
+            this->stop_and_unpause_media_();
           }
+          // TODO: do we still need this extra stop?
           this->media_pipeline_->stop();
         }
         this->media_playlist_.push_back(playlist_item);
@@ -189,27 +196,21 @@ void SpeakerMediaPlayer::watch_media_commands_() {
               this->cancel_timeout("next_ann");
               this->announcement_playlist_.clear();
               this->announcement_pipeline_->stop();
-              this->set_retry("unpause_ann", 50, 3, [this](const uint8_t remaining_attempts) {
+              this->unpause_announcement_remaining_ = 3;
+              this->set_interval("unpause_ann", 50, [this]() {
                 if (this->announcement_pipeline_state_ == AudioPipelineState::STOPPED) {
+                  this->cancel_interval("unpause_ann");
                   this->announcement_pipeline_->set_pause_state(false);
-                  return RetryResult::DONE;
+                } else if (--this->unpause_announcement_remaining_ == 0) {
+                  this->cancel_interval("unpause_ann");
                 }
-                return RetryResult::RETRY;
               });
             }
           } else {
             if (this->media_pipeline_ != nullptr) {
               this->cancel_timeout("next_media");
               this->media_playlist_.clear();
-              this->media_pipeline_->stop();
-              this->set_retry("unpause_med", 50, 3, [this](const uint8_t remaining_attempts) {
-                if (this->media_pipeline_state_ == AudioPipelineState::STOPPED) {
-                  this->media_pipeline_->set_pause_state(false);
-                  this->is_paused_ = false;
-                  return RetryResult::DONE;
-                }
-                return RetryResult::RETRY;
-              });
+              this->stop_and_unpause_media_();
             }
           }
 
@@ -227,7 +228,6 @@ void SpeakerMediaPlayer::watch_media_commands_() {
           break;
         case media_player::MEDIA_PLAYER_COMMAND_MUTE: {
           this->set_mute_state_(true);
-
           this->publish_state();
           break;
         }
@@ -488,6 +488,9 @@ void SpeakerMediaPlayer::control(const media_player::MediaPlayerCall &call) {
 
   if (call.get_volume().has_value()) {
     media_command.volume = call.get_volume().value();
+    if (call.get_command().has_value()) {
+      media_command.command = call.get_command().value();
+    }
     // Wait 0 ticks for queue to be free, volume sets aren't that important!
     xQueueSend(this->media_control_command_queue_, &media_command, 0);
     return;
@@ -550,20 +553,25 @@ void SpeakerMediaPlayer::set_mute_state_(bool mute_state, bool restore_only) {
 
   if (old_mute_state != mute_state) {
     if (mute_state) {
-      this->defer([this]() { this->mute_trigger_->trigger(); });
+      this->defer([this]() { this->mute_trigger_.trigger(); });
     } else {
-      this->defer([this]() { this->unmute_trigger_->trigger(); });
+      this->defer([this]() { this->unmute_trigger_.trigger(); });
     }
-  }
 #if USE_SNAPCAST
-  if (this->snapcast_client_) {
-    this->snapcast_client_->report_volume(this->volume, this->is_muted_);
-  }
+    if (this->snapcast_client_) {
+      float report_volume = this->volume;
+      if (this->is_muted_ && this->volume < 0.01) {
+        report_volume = 0.01;
+      }
+      this->snapcast_client_->report_volume(report_volume, this->is_muted_);
+    }
 #endif
+  }
 }
 
 void SpeakerMediaPlayer::set_volume_(float volume, bool publish, bool restore_only) {
   // Remap the volume to fit with in the configured limits
+  volume = clamp<float>(volume, 0.0, 1.0);
   float bounded_volume = remap<float, float>(volume, 0.0f, 1.0f, this->volume_min_, this->volume_max_);
 
   if (!restore_only) {
@@ -575,23 +583,35 @@ void SpeakerMediaPlayer::set_volume_(float volume, bool publish, bool restore_on
     }
   }
 
-  if (publish) {
+  if (volume < 0.001) {
+    this->volume = 0.001;
+  } else {
     this->volume = volume;
+  }
+
+  bool muted_changed = false;
+  // Turn on the mute state if the volume is effectively zero, off otherwise
+  if (volume < 0.001 && !this->is_muted_) {
+    this->set_mute_state_(true);
+    muted_changed = true;
+  } else if (this->is_muted_) {
+    this->set_mute_state_(false);
+    muted_changed = true;
+  }
+  if (publish) {
     this->save_volume_restore_state_();
   }
 
-  // Turn on the mute state if the volume is effectively zero, off otherwise
-  if (volume < 0.001) {
-    this->set_mute_state_(true);
-  } else {
-    this->set_mute_state_(false);
-  }
 #if USE_SNAPCAST
-  if (this->snapcast_client_) {
-    this->snapcast_client_->report_volume(volume, this->is_muted_);
+  if (this->snapcast_client_ && !muted_changed) {
+    float report_volume = this->volume;
+    if (this->is_muted_ && this->volume < 0.01) {
+      report_volume = 0.01;
+    }
+    this->snapcast_client_->report_volume(report_volume, this->is_muted_);
   }
 #endif
-  this->defer([this, volume]() { this->volume_trigger_->trigger(volume); });
+  this->defer([this, volume]() { this->volume_trigger_.trigger(volume); });
 }
 
 }  // namespace speaker

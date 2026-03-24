@@ -48,9 +48,6 @@ class TimeStats {
     size_t min_valid_samples = 50;  // init: number of samples before locking initial estimate
     size_t window_size = 5;         // min-RTT selection window
 
-    // Mode
-    bool hybrid_kalman = true;  // true: Kalman offset+drift; false: adaptive EMA
-
     // RTT stats adaptation
     double rtt_jitter_beta = 0.05;  // EMA factor for excess RTT tracking (0.02..0.1)
     int64_t min_rtt_up_div = 400;   // slow upward creep divisor (200..1000)
@@ -86,8 +83,7 @@ class TimeStats {
         smoothing_(cfg.base_smoothing),
         base_smoothing_(cfg.base_smoothing),
         min_valid_samples_(cfg.min_valid_samples),
-        window_size_(cfg.window_size),
-        hybrid_(cfg.hybrid_kalman) {}
+        window_size_(cfg.window_size) {}
 
   void set_request_time(uint16_t msg_id, tv_t request_time) {
     const int64_t us = request_time.to_microseconds();
@@ -159,14 +155,13 @@ class TimeStats {
         rtt_stats_update_(best->rtt);
         pending_init_values_.clear();
 
-        if (hybrid_)
-          reset_kalman_(received_time, ema_);
+        reset_kalman_(received_time, ema_);
       }
       return;
     }
 
     // ---- Bias reduction: pick min-RTT sample from a short window ----
-    window_.push_back({delta, rtt});
+    window_.push_back({delta, rtt, received_time});
     if (window_.size() > window_size_)
       window_.pop_front();
 
@@ -179,12 +174,6 @@ class TimeStats {
 
     // Update RTT stats (adaptive across environments)
     rtt_stats_update_(meas_rtt);
-
-    if (!hybrid_) {
-      adaptive_ema_update_(meas);
-      return;
-    }
-
     adaptive_kalman_update_(t_meas, meas, meas_rtt);
   }
 
@@ -194,7 +183,7 @@ class TimeStats {
   tv_t get_estimate() const {
     if (!has_value_)
       return tv_t(0, 0);
-    tv_t est = reference_offset_ + (hybrid_ ? last_kalman_offset_tv_ : ema_);
+    tv_t est = reference_offset_ + last_kalman_offset_tv_;
     if (has_bias_)
       est = est + bias_;
     return est;
@@ -226,13 +215,6 @@ class TimeStats {
 
   size_t outliers() const { return outlier_count_; }
 
-  void set_hybrid(bool hybrid_kalman) {
-    if (hybrid_ == hybrid_kalman)
-      return;
-    hybrid_ = hybrid_kalman;
-    reset_kalman_state_();
-  }
-
  public:
   // ---------------- Configuration ----------------
   Config cfg_;
@@ -240,7 +222,6 @@ class TimeStats {
   float base_smoothing_;
   size_t min_valid_samples_;
   size_t window_size_;
-  bool hybrid_;
 
   // ---------------- Flags/counters ----------------
   bool has_value_ = false;
@@ -306,55 +287,15 @@ class TimeStats {
   }
 
   // sigma_k in microseconds
+  // Measurement error is bounded by RTT/2 (NTP asymmetry), so sigma >= RTT/2.
   int64_t current_sigma_us_() const {
     const double floor_sigma = std::max(10.0, cfg_.sigma_floor_us);
     if (!rtt_inited_)
       return static_cast<int64_t>(std::llround(floor_sigma));
 
-    const double excess = static_cast<double>(std::max<int64_t>(0, last_rtt_us_ - min_rtt_us_));
-    const double scale = std::max(cfg_.sigma_scale_floor_us, excess_ema_ + absdev_ema_);
-
-    double z = excess / scale;
-    if (z < 0.0)
-      z = 0.0;
-    if (z > cfg_.sigma_z_cap)
-      z = cfg_.sigma_z_cap;
-
-    const double sigma = floor_sigma + cfg_.sigma_slope_us * z;
+    const double rtt_sigma = static_cast<double>(last_rtt_us_) / 2.0;
+    const double sigma = std::max(floor_sigma, rtt_sigma);
     return static_cast<int64_t>(std::llround(std::max(10.0, sigma)));
-  }
-
-  // ---------------- Classic adaptive EMA ----------------
-  void adaptive_ema_update_(tv_t meas) {
-    const tv_t diff = meas - ema_;
-    const int64_t sigma_us = current_sigma_us_();
-    const int64_t gate_us = static_cast<int64_t>(std::llround(cfg_.gate_n_sigma * (double) sigma_us));
-    const int64_t diff_us = diff.to_microseconds();
-
-    if (std::llabs(diff_us) <= gate_us) {
-      // RTT-adaptive effective alpha: reduce step size when RTT is abnormal
-      const double excess = static_cast<double>(std::max<int64_t>(0, last_rtt_us_ - min_rtt_us_));
-      const double scale = std::max(cfg_.sigma_scale_floor_us, excess_ema_ + absdev_ema_);
-      double z = excess / scale;
-      if (z < 0.0)
-        z = 0.0;
-      if (z > cfg_.sigma_z_cap)
-        z = cfg_.sigma_z_cap;
-
-      double alpha_eff = base_smoothing_ / (1.0 + 0.5 * z);
-      alpha_eff = std::max(alpha_eff, static_cast<double>(base_smoothing_) * 0.25);
-
-      ema_ = ema_ + diff * static_cast<float>(alpha_eff);
-      consecutive_outliers_ = 0;
-    } else {
-      outlier_count_++;
-      consecutive_outliers_++;
-      if (cfg_.hard_recover_on_outliers && consecutive_outliers_ >= MAX_CONSECUTIVE_OUTLIERS) {
-        // partial recenter for recovery
-        ema_ = ema_ + (meas - ema_) * 0.5f;
-        consecutive_outliers_ = 0;
-      }
-    }
   }
 
   // ---------------- Hybrid Kalman (offset + drift) ----------------

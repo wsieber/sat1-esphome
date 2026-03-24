@@ -182,8 +182,8 @@ void SnapcastClient::on_stream_state_update(StreamState stream_state, uint8_t vo
       this->media_player_ != nullptr && volume >= 0 && volume <= 100) {
     this->media_player_->make_call()
         .set_volume(volume / 100.)
-        .set_command(muted ? media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_MUTE
-                           : media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_UNMUTE)
+        .set_command(muted || volume == 0 ? media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_MUTE
+                                          : media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_UNMUTE)
         .perform();
     return;
   }
@@ -247,7 +247,7 @@ static void mdns_print_results(mdns_result_t *results) {
 }
 
 static bool test_tcp_connect(const esp_ip4_addr_t &ip, uint16_t port, uint32_t timeout_ms) {
-  int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+  int sock = lwip_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
   if (sock < 0) {
     return false;
   }

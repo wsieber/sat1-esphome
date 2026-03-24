@@ -34,6 +34,9 @@ esp32:
       CONFIG_LWIP_TCPIP_RECVMBOX_SIZE: "64"
       CONFIG_LWIP_TCP_RECVMBOX_SIZE: "64"
       CONFIG_LWIP_UDP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCP_RTO_TIME: "500"        # Default was 1500ms
+      CONFIG_LWIP_TCP_SACK_OUT: "y"          # Default was disabled
+      CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS: "8"   # Default was 4
 
       # WiFi
       CONFIG_ESP_WIFI_AMPDU_RX_ENABLED: "y"
