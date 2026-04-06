@@ -120,6 +120,7 @@ improv_serial:
           condition:                                      
             lambda: return x.get_action() == std::string("DISABLE_LED_RING");
           then:
+            - lambda: id(test_instructions) = 0;
             - light.turn_off:
                 id: voice_assistant_leds
 
