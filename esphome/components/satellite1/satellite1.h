@@ -152,6 +152,7 @@ class Satellite1 : public Component,
   void add_on_state_callback(std::function<void()> &&callback) { this->state_callback_.add(std::move(callback)); }
 
   void xmos_hardware_reset();
+  void read_xmos_firmware() { this->dfu_get_fw_version_(); }
 
  protected:
   bool dfu_get_fw_version_();

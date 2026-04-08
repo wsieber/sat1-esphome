@@ -42,6 +42,7 @@ binary_sensor:
     icon: "mdi:volume-plus"
     on_press:
       then:
+        - logger.log: "Button Up - pressed"
         - lambda: id(volume_buttons_touched) = true;
         - script.execute:
             id: control_volume
@@ -58,6 +59,7 @@ binary_sensor:
     icon: "mdi:volume-minus"
     on_press:
       then:
+        - logger.log: "Button Down - pressed"
         - lambda: id(volume_buttons_touched) = true;
         - script.execute:
             id: control_volume
@@ -73,6 +75,7 @@ binary_sensor:
     name: "Button Left (HW Mute)"
     icon: "mdi:microphone-off"
     on_state:
+      - logger.log: "Button Left - pressed"
       - if:
           condition:
             binary_sensor.is_off: btn_left
@@ -105,6 +108,7 @@ binary_sensor:
     name: "Button Right (Action)"
     icon: "mdi:gesture-tap"
     on_press:
+      - logger.log: "Button Right - pressed"
       - script.execute: control_leds
     on_release:
       - script.execute: control_leds
