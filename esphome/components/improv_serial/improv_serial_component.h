@@ -6,7 +6,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/helpers.h"
 #ifdef USE_WIFI
-#include <improv.h>
+#include "improv_ext.h"
 #include <vector>
 
 #ifdef USE_ESP32
@@ -46,6 +46,25 @@ enum ImprovSerialType : uint8_t {
 static const uint16_t IMPROV_SERIAL_TIMEOUT = 100;
 static const uint8_t IMPROV_SERIAL_VERSION = 1;
 
+
+class ExtAction {
+  public:
+    ExtAction() = default;
+    ExtAction(const std::string &action, const std::string &url) : action_(action), url_(url) {}
+    ExtAction(const improv_ext::ImprovCommand &command) {
+      this->action_ = command.ssid;
+      this->url_ = command.password;
+    }
+    const std::string &get_action() const { return action_; }
+    const optional<std::string> &get_url() const { return url_; }
+  
+  private:
+    std::string action_;
+    optional<std::string> url_;
+};
+
+
+
 class ImprovSerialComponent : public Component, public improv_base::ImprovBase {
  public:
   void setup() override;
@@ -54,16 +73,22 @@ class ImprovSerialComponent : public Component, public improv_base::ImprovBase {
 
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
+  void send_action_status(const std::string action, int status);
+  
+  Trigger<ExtAction> *get_action_request_trigger() {
+    return this->action_request_trigger_;
+  }
+
  protected:
   bool parse_improv_serial_byte_(uint8_t byte);
-  bool parse_improv_payload_(improv::ImprovCommand &command);
+  bool parse_improv_payload_(improv_ext::ImprovCommand &command);
 
-  void set_state_(improv::State state);
-  void set_error_(improv::Error error);
+  void set_state_(improv_ext::State state);
+  void set_error_(improv_ext::Error error);
   void send_response_(std::vector<uint8_t> &response);
   void on_wifi_connect_timeout_();
 
-  std::vector<uint8_t> build_rpc_settings_response_(improv::Command command);
+  std::vector<uint8_t> build_rpc_settings_response_(improv_ext::Command command);
   std::vector<uint8_t> build_version_info_();
 
   optional<uint8_t> read_byte_();
@@ -93,8 +118,27 @@ class ImprovSerialComponent : public Component, public improv_base::ImprovBase {
   std::vector<uint8_t> rx_buffer_;
   uint32_t last_read_byte_{0};
   wifi::WiFiAP connecting_sta_;
-  improv::State state_{improv::STATE_AUTHORIZED};
+  improv_ext::State state_{improv_ext::STATE_AUTHORIZED};
+
+  Trigger<ExtAction> *action_request_trigger_ = new Trigger<ExtAction>();
 };
+
+
+template<typename... Ts> 
+class ImprovSendActionStatusAction : public Action<Ts...> {
+public:
+  ImprovSendActionStatusAction(ImprovSerialComponent *parent) : parent_(parent) {}
+  TEMPLATABLE_VALUE(std::string, action)
+  TEMPLATABLE_VALUE(int, status )
+  
+  void play(Ts... x) override {
+    this->parent_->send_action_status(action_.value(x...), status_.value(x...));
+  }
+protected:
+  ImprovSerialComponent *parent_;
+};
+
+
 
 extern ImprovSerialComponent
     *global_improv_serial_component;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)

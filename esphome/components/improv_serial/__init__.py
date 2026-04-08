@@ -6,6 +6,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_BAUD_RATE, CONF_HARDWARE_UART, CONF_ID, CONF_LOGGER
 from esphome.core import CORE
 import esphome.final_validate as fv
+from esphome import automation
 
 AUTO_LOAD = ["improv_base"]
 CODEOWNERS = ["@esphome/core"]
@@ -14,9 +15,23 @@ DEPENDENCIES = ["logger", "wifi"]
 improv_serial_ns = cg.esphome_ns.namespace("improv_serial")
 
 ImprovSerialComponent = improv_serial_ns.class_("ImprovSerialComponent", cg.Component)
+ExtAction = improv_serial_ns.class_("ExtAction")
+SendActionStatusAction = improv_serial_ns.class_(
+    "ImprovSendActionStatusAction", 
+    automation.Action
+)
+
+
+CONF_ON_ACTION = "on_action"
+CONF_ACTION_ID  = "action"
+CONF_STATUS = "status"
 
 CONFIG_SCHEMA = (
-    cv.Schema({cv.GenerateID(): cv.declare_id(ImprovSerialComponent)})
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(ImprovSerialComponent),
+            cv.Optional(CONF_ON_ACTION): automation.validate_automation(single=True)
+        })
     .extend(improv_base.IMPROV_SCHEMA)
     .extend(cv.COMPONENT_SCHEMA)
 )
@@ -44,3 +59,38 @@ async def to_code(config):
     await cg.register_component(var, config)
     await improv_base.setup_improv_core(var, config, "improv_serial")
     cg.add_define("USE_IMPROV_SERIAL")
+
+    if on_action := config.get(CONF_ON_ACTION):
+        await automation.build_automation(
+            var.get_action_request_trigger(), 
+            [(ExtAction, "x")],
+            on_action
+        )
+    var.get_action_request_trigger()
+
+SEND_ACTION_STATUS_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(CONF_ID): cv.use_id(ImprovSerialComponent),
+        cv.Required(CONF_ACTION_ID): cv.string,
+        cv.Required(CONF_STATUS): cv.positive_int
+    }
+)
+
+
+@automation.register_action(
+    "improv_serial.send_action_status",
+    SendActionStatusAction,
+    SEND_ACTION_STATUS_SCHEMA)
+async def send_action_status_to_code(config, action_id, template_args, args):
+    improv_comp = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_args, improv_comp)
+    
+    action_id = config[CONF_ACTION_ID]
+    action_tmpl_ = await cg.templatable(action_id, args, cg.std_string)
+    cg.add( var.set_action(action_tmpl_))
+
+    status = config[CONF_STATUS]
+    status_tmpl_ = await cg.templatable(status, args, cg.int16)
+    cg.add( var.set_status(status_tmpl_))
+    
+    return var

@@ -22,7 +22,7 @@ void ImprovSerialComponent::setup() {
 #endif
 
   if (wifi::global_wifi_component->has_sta()) {
-    this->state_ = improv::STATE_PROVISIONED;
+    this->state_ = improv_ext::STATE_PROVISIONED;
   } else {
     wifi::global_wifi_component->start_scanning();
   }
@@ -46,15 +46,15 @@ void ImprovSerialComponent::loop() {
     byte = this->read_byte_();
   }
 
-  if (this->state_ == improv::STATE_PROVISIONING) {
+  if (this->state_ == improv_ext::STATE_PROVISIONING) {
     if (wifi::global_wifi_component->is_connected()) {
       wifi::global_wifi_component->save_wifi_sta(this->connecting_sta_.get_ssid(),
                                                  this->connecting_sta_.get_password());
       this->connecting_sta_ = {};
       this->cancel_timeout("wifi-connect-timeout");
-      this->set_state_(improv::STATE_PROVISIONED);
+      this->set_state_(improv_ext::STATE_PROVISIONED);
 
-      std::vector<uint8_t> url = this->build_rpc_settings_response_(improv::WIFI_SETTINGS);
+      std::vector<uint8_t> url = this->build_rpc_settings_response_(improv_ext::WIFI_SETTINGS);
       this->send_response_(url);
     }
   }
@@ -179,7 +179,7 @@ void ImprovSerialComponent::write_data_(const uint8_t *data, const size_t size) 
 #endif
 }
 
-std::vector<uint8_t> ImprovSerialComponent::build_rpc_settings_response_(improv::Command command) {
+std::vector<uint8_t> ImprovSerialComponent::build_rpc_settings_response_(improv_ext::Command command) {
   std::vector<std::string> urls;
 #ifdef USE_IMPROV_SERIAL_NEXT_URL
   {
@@ -203,7 +203,7 @@ std::vector<uint8_t> ImprovSerialComponent::build_rpc_settings_response_(improv:
     }
   }
 #endif
-  std::vector<uint8_t> data = improv::build_rpc_response(command, urls, false);
+  std::vector<uint8_t> data = improv_ext::build_rpc_response(command, urls, false);
   return data;
 }
 
@@ -213,7 +213,7 @@ std::vector<uint8_t> ImprovSerialComponent::build_version_info_() {
 #else
   std::vector<std::string> infos = {"ESPHome", ESPHOME_VERSION, ESPHOME_VARIANT, App.get_name()};
 #endif
-  std::vector<uint8_t> data = improv::build_rpc_response(improv::GET_DEVICE_INFO, infos, false);
+  std::vector<uint8_t> data = improv_ext::build_rpc_response(improv_ext::GET_DEVICE_INFO, infos, false);
   return data;
 };
 
@@ -223,17 +223,17 @@ bool ImprovSerialComponent::parse_improv_serial_byte_(uint8_t byte) {
   ESP_LOGV(TAG, "Byte: 0x%02X", byte);
   const uint8_t *raw = &this->rx_buffer_[0];
 
-  return improv::parse_improv_serial_byte(
-      at, byte, raw, [this](improv::ImprovCommand command) -> bool { return this->parse_improv_payload_(command); },
-      [this](improv::Error error) -> void {
-        ESP_LOGW(TAG, "Error decoding payload");
+  return improv_ext::parse_improv_serial_byte(
+      at, byte, raw, [this](improv_ext::ImprovCommand command) -> bool { return this->parse_improv_payload_(command); },
+      [this](improv_ext::Error error) -> void {
+        ESP_LOGW(TAG, "Error decoding Improv payload");
         this->set_error_(error);
       });
 }
 
-bool ImprovSerialComponent::parse_improv_payload_(improv::ImprovCommand &command) {
+bool ImprovSerialComponent::parse_improv_payload_(improv_ext::ImprovCommand &command) {
   switch (command.command) {
-    case improv::WIFI_SETTINGS: {
+    case improv_ext::WIFI_SETTINGS: {
       wifi::WiFiAP sta{};
       sta.set_ssid(command.ssid.c_str());
       sta.set_password(command.password.c_str());
@@ -241,7 +241,7 @@ bool ImprovSerialComponent::parse_improv_payload_(improv::ImprovCommand &command
 
       wifi::global_wifi_component->set_sta(sta);
       wifi::global_wifi_component->start_connecting(sta);
-      this->set_state_(improv::STATE_PROVISIONING);
+      this->set_state_(improv_ext::STATE_PROVISIONING);
       ESP_LOGD(TAG, "Received settings: SSID=%s, password=" LOG_SECRET("%s"), command.ssid.c_str(),
                command.password.c_str());
 
@@ -249,19 +249,19 @@ bool ImprovSerialComponent::parse_improv_payload_(improv::ImprovCommand &command
       this->set_timeout("wifi-connect-timeout", 30000, f);
       return true;
     }
-    case improv::GET_CURRENT_STATE:
+    case improv_ext::GET_CURRENT_STATE:
       this->set_state_(this->state_);
-      if (this->state_ == improv::STATE_PROVISIONED) {
-        std::vector<uint8_t> url = this->build_rpc_settings_response_(improv::GET_CURRENT_STATE);
+      if (this->state_ == improv_ext::STATE_PROVISIONED) {
+        std::vector<uint8_t> url = this->build_rpc_settings_response_(improv_ext::GET_CURRENT_STATE);
         this->send_response_(url);
       }
       return true;
-    case improv::GET_DEVICE_INFO: {
+    case improv_ext::GET_DEVICE_INFO: {
       std::vector<uint8_t> info = this->build_version_info_();
       this->send_response_(info);
       return true;
     }
-    case improv::GET_WIFI_NETWORKS: {
+    case improv_ext::GET_WIFI_NETWORKS: {
       std::vector<std::string> networks;
       const auto &results = wifi::global_wifi_component->get_scan_result();
       for (auto &scan : results) {
@@ -284,32 +284,42 @@ bool ImprovSerialComponent::parse_improv_payload_(improv::ImprovCommand &command
         char rssi_buf[5];  // int8_t: -128 to 127, max 4 chars + null
         *int8_to_str(rssi_buf, scan.get_rssi()) = '\0';
         std::vector<uint8_t> data =
-            improv::build_rpc_response(improv::GET_WIFI_NETWORKS, {ssid, rssi_buf, YESNO(scan.get_with_auth())}, false);
+            improv_ext::build_rpc_response(improv_ext::GET_WIFI_NETWORKS, {ssid, rssi_buf, YESNO(scan.get_with_auth())}, false);
         this->send_response_(data);
         networks.push_back(std::move(ssid));
       }
       // Send empty response to signify the end of the list.
       std::vector<uint8_t> data =
-          improv::build_rpc_response(improv::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
+          improv_ext::build_rpc_response(improv_ext::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
       this->send_response_(data);
       return true;
     }
     default: {
       ESP_LOGW(TAG, "Unknown payload");
-      this->set_error_(improv::ERROR_UNKNOWN_RPC);
+      this->set_error_(improv_ext::ERROR_UNKNOWN_RPC);
       return false;
     }
   }
 }
 
-void ImprovSerialComponent::set_state_(improv::State state) {
+void ImprovSerialComponent::send_action_status(const std::string action, int status){
+      ESP_LOGD(TAG, "Sending action status: %s, %d", action.c_str(), status);
+      std::vector<uint8_t> data = improv_ext::build_rpc_response( 
+      improv_ext::TRIGGER_ACTION, 
+      { "status", action, std::to_string(status)}, 
+      false
+    );
+    this->send_response_(data);
+}
+
+void ImprovSerialComponent::set_state_(improv_ext::State state) {
   this->state_ = state;
   this->tx_header_[TX_TYPE_IDX] = TYPE_CURRENT_STATE;
   this->tx_header_[TX_DATA_IDX] = state;
   this->write_data_();
 }
 
-void ImprovSerialComponent::set_error_(improv::Error error) {
+void ImprovSerialComponent::set_error_(improv_ext::Error error) {
   this->tx_header_[TX_TYPE_IDX] = TYPE_ERROR_STATE;
   this->tx_header_[TX_DATA_IDX] = error;
   this->write_data_();
@@ -321,8 +331,8 @@ void ImprovSerialComponent::send_response_(std::vector<uint8_t> &response) {
 }
 
 void ImprovSerialComponent::on_wifi_connect_timeout_() {
-  this->set_error_(improv::ERROR_UNABLE_TO_CONNECT);
-  this->set_state_(improv::STATE_AUTHORIZED);
+  this->set_error_(improv_ext::ERROR_UNABLE_TO_CONNECT);
+  this->set_state_(improv_ext::STATE_AUTHORIZED);
   ESP_LOGW(TAG, "Timed out while connecting to Wi-Fi network");
   wifi::global_wifi_component->clear_sta();
 }
