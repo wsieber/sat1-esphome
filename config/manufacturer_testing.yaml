@@ -107,6 +107,7 @@ external_components:
       - memory_flasher
       - micro_wake_word
       - mixer
+      - online_testing
       - pcm5122
       - resampler
       - satellite1
