@@ -34,11 +34,18 @@ class MicTester : public Component {
 
   void set_microphone(microphone::Microphone *mic) { this->mic_ = mic; }
   void set_media_file(audio::AudioFile *ref_media_file) { this->ref_media_file_ = ref_media_file; }
+  void set_channel(uint8_t channel) { this->channel_ = channel; }
+  uint8_t get_channel() const { return this->channel_; }
 
   void request_start(bool continuous);
   void request_stop();
+  void pause_detection();
+  void reset_detection();
+
+  float get_mic_energy();
 
   bool is_running() const { return this->state_ != State::IDLE; }
+  bool is_mic_active() const { return this->state_ != State::IDLE && this->state_ != State::STOP_MICROPHONE && this->state_ != State::STOPPING_MICROPHONE; }
   void set_continuous(bool continuous) { this->continuous_ = continuous; }
   bool is_continuous() const { return this->continuous_; }
 
@@ -54,10 +61,11 @@ class MicTester : public Component {
   void deallocate_buffers_();
 
   void read_sweep_();
-  int read_microphone_();
   void set_state_(State state);
   void set_state_(State state, State desired_state);
   void signal_stop_();
+
+  void on_audio_data_(const std::vector<uint8_t> &data);
 
   Trigger<> *listening_trigger_ = new Trigger<>();
   Trigger<> *end_trigger_ = new Trigger<>();
@@ -70,17 +78,21 @@ class MicTester : public Component {
 
   audio::AudioFile *ref_media_file_{nullptr};
   float sweep_norm_ = 0.0f;
-  
-  
-  bool local_output_{false};
 
   HighFrequencyLoopRequester high_freq_;
 
-  int16_t *input_buffer_;
-  int read_pos_ = 0;
+  int16_t *input_buffer_{nullptr};
+  size_t input_buffer_size_{0};
+  volatile size_t write_pos_{0};
+  volatile size_t read_pos_{0};
 
   bool continuous_{false};
-  
+  bool callback_registered_{false};
+  uint8_t channel_{0};  // 0 = left, 1 = right
+
+  float energy_accumulator_{0.0f};
+  size_t energy_sample_count_{0};
+
   State state_{State::IDLE};
   State desired_state_{State::IDLE};
 };
@@ -113,10 +125,5 @@ template<typename... Ts> class StartAction : public Action<Ts...>, public Parent
 
 
 
-
-
-
-
 }  // namespace online_testing
 }  // namespace esphome
-

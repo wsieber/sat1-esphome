@@ -13,17 +13,17 @@ namespace online_testing {
 
 static const char *const TAG = "mic_tests";
 
-
-
-static constexpr size_t INPUT_BUFFER_SIZE = 4 * 640;
+static constexpr size_t INPUT_BUFFER_SIZE = 16000 * 2;
 
 static const size_t SWEEP_LEN = 512;
 static constexpr size_t MAX_BUFFER_SIZE = SWEEP_LEN * 2;
+static constexpr float DETECTION_THRESHOLD = 0.30f;
 
 // Aligned buffers
 __attribute__((aligned(16))) float mic_buffer[MAX_BUFFER_SIZE];
 __attribute__((aligned(16))) float sweep_f32[SWEEP_LEN];
 __attribute__((aligned(16))) float window[SWEEP_LEN];
+__attribute__((aligned(16))) float work_buf[SWEEP_LEN];
 
 size_t mic_write_index = 0;
 size_t mic_filled = 0;
@@ -32,15 +32,7 @@ static inline size_t wrap_index(size_t idx) {
     return idx % MAX_BUFFER_SIZE;
 }
 
-void convert_to_float(const int16_t* src, float* dst, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        dst[i] = static_cast<float>(src[i]);
-    }
-}
-
-bool detect_sweep_streaming(const int16_t* chunk, size_t chunk_len, float sweep_norm) {
-    uint32_t start_time = millis();
-    // 1. Convert input to float and write to circular buffer
+float detect_sweep_streaming(const int16_t* chunk, size_t chunk_len, float sweep_norm) {
     for (size_t i = 0; i < chunk_len; i++) {
         mic_buffer[mic_write_index] = static_cast<float>(chunk[i]);
         mic_write_index = wrap_index(mic_write_index + 1);
@@ -48,38 +40,28 @@ bool detect_sweep_streaming(const int16_t* chunk, size_t chunk_len, float sweep_
 
     mic_filled = std::min(mic_filled + chunk_len, MAX_BUFFER_SIZE);
 
-    // 2. Only process if we have enough samples
-    if (mic_filled < SWEEP_LEN) return false;
+    if (mic_filled < SWEEP_LEN) return 0.0f;
 
     float max_similarity = 0.0f;
-    int best_offset = -1;
 
-    // 3. Check all valid windows in the buffer
     for (size_t i = 0; i <= mic_filled - SWEEP_LEN; i++) {
-        float window[SWEEP_LEN];
         for (size_t j = 0; j < SWEEP_LEN; j++) {
             size_t idx = wrap_index(mic_write_index + MAX_BUFFER_SIZE - mic_filled + i + j);
-            window[j] = mic_buffer[idx];
+            work_buf[j] = mic_buffer[idx];
         }
 
         float dot = 0.0f;
         float norm_mic = 0.0f;
-        dsps_dotprod_f32(window, sweep_f32, &dot, SWEEP_LEN);
-        dsps_dotprod_f32(window, window, &norm_mic, SWEEP_LEN);
+        dsps_dotprod_f32(work_buf, sweep_f32, &dot, SWEEP_LEN);
+        dsps_dotprod_f32(work_buf, work_buf, &norm_mic, SWEEP_LEN);
 
         float similarity = dot / (sweep_norm * sqrtf(norm_mic) + 1e-8f);
         if (similarity > max_similarity) {
             max_similarity = similarity;
-            best_offset = static_cast<int>(i);
         }
     }
-    printf( "Sweep-Detect - Elapsed time: %d ms (corr=%.2f)\n", millis() - start_time, max_similarity );
-    if (max_similarity > 0.40f) {
-        ESP_LOGI("sweep", "Sweep detected: corr=%.2f at offset=%d", max_similarity, best_offset);
-        return true;
-    }
 
-    return false;
+    return max_similarity;
 }
 
 
@@ -92,32 +74,32 @@ void MicTester::setup() {
 }
 
 bool MicTester::allocate_buffers_() {
-  
+  if (this->input_buffer_ != nullptr)
+    return true;
   ExternalRAMAllocator<int16_t> allocator(ExternalRAMAllocator<int16_t>::ALLOW_FAILURE);
   this->input_buffer_ = allocator.allocate(INPUT_BUFFER_SIZE);
-  
-  //this->input_buffer_ = (int16_t*) heap_caps_malloc(INPUT_BUFFER_SIZE * sizeof(int16_t), MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
   if (this->input_buffer_ == nullptr) {
     ESP_LOGW(TAG, "Could not allocate input buffer");
     return false;
   }
-
+  this->input_buffer_size_ = INPUT_BUFFER_SIZE;
   return true;
 }
 
 void MicTester::clear_buffers_() {
+  this->write_pos_ = 0;
   this->read_pos_ = 0;
-  if (this->input_buffer_ != nullptr) {
-    memset(this->input_buffer_, 0, INPUT_BUFFER_SIZE * sizeof(int16_t));
-  }
-  
+  this->energy_accumulator_ = 0.0f;
+  this->energy_sample_count_ = 0;
 }
 
 void MicTester::deallocate_buffers_() {
-  ExternalRAMAllocator<int16_t> input_deallocator(ExternalRAMAllocator<int16_t>::ALLOW_FAILURE);
-  input_deallocator.deallocate(this->input_buffer_, INPUT_BUFFER_SIZE);
-  //free( this->input_buffer_);
+  if (this->input_buffer_ == nullptr)
+    return;
+  ExternalRAMAllocator<int16_t> deallocator(ExternalRAMAllocator<int16_t>::ALLOW_FAILURE);
+  deallocator.deallocate(this->input_buffer_, INPUT_BUFFER_SIZE);
   this->input_buffer_ = nullptr;
+  this->input_buffer_size_ = 0;
 }
 
 void MicTester::read_sweep_() {
@@ -129,14 +111,16 @@ void MicTester::read_sweep_() {
         return;
     }
     ESP_LOGD(TAG, "Reading sweep data from file.  Length: %d", len);
-    convert_to_float(reinterpret_cast<const int16_t *>(data), sweep_f32, SWEEP_LEN );
-    
-    // Apply Hann window to sweep
+    const int16_t *src = reinterpret_cast<const int16_t *>(data);
+    for (size_t i = 0; i < SWEEP_LEN; i++) {
+        sweep_f32[i] = static_cast<float>(src[i]);
+    }
+
     dsps_wind_hann_f32(window, SWEEP_LEN);
     for (int i = 0; i < SWEEP_LEN; i++) {
         sweep_f32[i] *= window[i];
     }
-    
+
     this->sweep_norm_ = .0f;
     for (int i = 0; i < SWEEP_LEN; i++) {
         this->sweep_norm_ += sweep_f32[i] * sweep_f32[i];
@@ -145,29 +129,32 @@ void MicTester::read_sweep_() {
 }
 
 
-int MicTester::read_microphone_() {
-  size_t bytes_read = 0;
-  if (this->mic_->is_running()) {  // Read audio into input buffer
-    size_t buffer_bytes = INPUT_BUFFER_SIZE * sizeof(int16_t);
-    
-    size_t to_read = 960; //buffer_bytes - this->read_pos_;
-    //to_read = to_read > 512 ? 512 : to_read;
-    
-    if (to_read == 0 || this->read_pos_ + to_read > buffer_bytes) {
-         ESP_LOGE(TAG, "Invalid read position or size");
-         return 0;
-    }
-    uint8_t* buffer = reinterpret_cast<uint8_t*>(this->input_buffer_);
-    bytes_read = this->mic_->read( reinterpret_cast<int16_t*>(buffer), to_read, pdMS_TO_TICKS(30) ); 
-    if( bytes_read != to_read ){
-      ESP_LOGE(TAG, "Couldn't read enough data, read: %d", bytes_read );
-      return 0;
-    }
-  } else {
-    ESP_LOGD(TAG, "microphone not running");
+void MicTester::on_audio_data_(const std::vector<uint8_t> &data) {
+  if (this->state_ != State::DETECTING_SWEEP)
+    return;
+  if (this->input_buffer_ == nullptr)
+    return;
+
+  const int32_t *samples_32 = reinterpret_cast<const int32_t *>(data.data());
+  const size_t total_samples = data.size() / sizeof(int32_t);
+  if (total_samples < 2)
+    return;
+
+  const size_t num_frames = total_samples / 2;
+  size_t wp = this->write_pos_;
+  const size_t limit = this->input_buffer_size_;
+
+  for (size_t i = 0; i < num_frames; i++) {
+    size_t idx = wp % limit;
+    int16_t sample = static_cast<int16_t>(samples_32[i * 2 + this->channel_] >> 16);
+    this->input_buffer_[idx] = sample;
+    this->energy_accumulator_ += static_cast<float>(sample) * static_cast<float>(sample);
+    this->energy_sample_count_++;
+    wp++;
   }
-  return bytes_read;
+  this->write_pos_ = wp;
 }
+
 
 void MicTester::loop() {
   switch (this->state_) {
@@ -185,13 +172,23 @@ void MicTester::loop() {
     case State::START_MICROPHONE: {
       ESP_LOGD(TAG, "Starting Microphone");
       if (!this->allocate_buffers_()) {
-        this->status_set_error("Failed to allocate buffers");
+        this->status_set_error(LOG_STR("Failed to allocate buffers"));
         return;
       }
       if (this->status_has_error()) {
         this->status_clear_error();
       }
       this->clear_buffers_();
+
+      mic_write_index = 0;
+      mic_filled = 0;
+
+      if (!this->callback_registered_) {
+        this->mic_->add_data_callback([this](const std::vector<uint8_t> &data) {
+          this->on_audio_data_(data);
+        });
+        this->callback_registered_ = true;
+      }
 
       this->mic_->start();
       this->high_freq_.start();
@@ -205,13 +202,31 @@ void MicTester::loop() {
       break;
     }
     case State::DETECTING_SWEEP: {
-       size_t samples_available = this->read_microphone_();
-        if ( samples_available == 960 ){
-            if( detect_sweep_streaming(this->input_buffer_, samples_available, this->sweep_norm_) ){
-                this->defer([this]() { this->sweep_detected_trigger_->trigger();  });
-                //std::memset( this->input_buffer_, 0, INPUT_BUFFER_SIZE * sizeof(int16_t) );
-            }           
-        } 
+      size_t wp = this->write_pos_;
+      size_t rp = this->read_pos_;
+      if (wp <= rp)
+        break;
+
+      size_t available = wp - rp;
+      if (available < 480)
+        break;
+
+      size_t chunk = std::min(available, (size_t) 960);
+      const size_t limit = this->input_buffer_size_;
+
+      int16_t temp[960];
+      for (size_t i = 0; i < chunk; i++) {
+        temp[i] = this->input_buffer_[(rp + i) % limit];
+      }
+      this->read_pos_ = rp + chunk;
+
+      float corr = detect_sweep_streaming(temp, chunk, this->sweep_norm_);
+      ESP_LOGD("sweep", "Sweep-Detect corr=%.2f (ch=%d)", corr, this->channel_);
+
+      if (corr > DETECTION_THRESHOLD) {
+        ESP_LOGI("sweep", "Sweep detected: corr=%.2f", corr);
+        this->sweep_detected_trigger_->trigger();
+      }
       break;
     }
     case State::STOP_MICROPHONE: {
@@ -225,6 +240,7 @@ void MicTester::loop() {
     }
     case State::STOPPING_MICROPHONE: {
       if (this->mic_->is_stopped()) {
+        this->deallocate_buffers_();
         this->set_state_(this->desired_state_);
       }
       break;
@@ -302,11 +318,40 @@ void MicTester::request_stop() {
   }
 }
 
+void MicTester::pause_detection() {
+  if (this->state_ == State::DETECTING_SWEEP) {
+    this->continuous_ = false;
+    this->state_ = State::STARTING_MICROPHONE;
+    this->desired_state_ = State::DETECTING_SWEEP;
+    ESP_LOGD(TAG, "Detection paused (mic stays running)");
+  }
+}
+
+void MicTester::reset_detection() {
+  this->clear_buffers_();
+  mic_write_index = 0;
+  mic_filled = 0;
+  if (this->state_ == State::STARTING_MICROPHONE || this->state_ == State::DETECTING_SWEEP) {
+    this->continuous_ = true;
+    this->state_ = State::DETECTING_SWEEP;
+    ESP_LOGD(TAG, "Detection reset (ch=%d)", this->channel_);
+  }
+}
+
+float MicTester::get_mic_energy() {
+  if (this->energy_sample_count_ == 0)
+    return -1.0f;
+  float rms = sqrtf(this->energy_accumulator_ / static_cast<float>(this->energy_sample_count_));
+  this->energy_accumulator_ = 0.0f;
+  this->energy_sample_count_ = 0;
+  return rms;
+}
+
 void MicTester::signal_stop_() {
 
 }
 
 
-}  // namespace voice_assistant
+}  // namespace online_testing
 }  // namespace esphome
 
