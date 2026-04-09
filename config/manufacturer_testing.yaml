@@ -264,7 +264,9 @@ improv_serial:
                 if (!id(mic_tester).is_running()) {
                   id(mic_tester).request_start(true);
                 } else {
+                  id(mic_tester).pause_detection();
                   id(mic_tester).reset_detection();
+                  id(mic_tester).request_start(true);
                 }
 
       - if:
@@ -296,9 +298,7 @@ improv_serial:
           then:
             - logger.log: "Stopping audio sweep detection on Right Mic"
             - lambda: |-
-                if (id(mic_tester).is_running()) {
-                  id(mic_tester).request_stop();
-                }
+                id(mic_tester).pause_detection();
 
 
       - if:

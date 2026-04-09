@@ -32,7 +32,19 @@ static inline size_t wrap_index(size_t idx) {
     return idx % MAX_BUFFER_SIZE;
 }
 
-float detect_sweep_streaming(const int16_t* chunk, size_t chunk_len, float sweep_norm) {
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <algorithm>
+
+float detect_sweep_streaming(
+    const int16_t* chunk,
+    size_t chunk_len,
+    float sweep_l2_norm,
+    float min_window_energy = 1.0e6f,
+    bool use_abs_similarity = false
+) {
+    // Append new samples into circular buffer
     for (size_t i = 0; i < chunk_len; i++) {
         mic_buffer[mic_write_index] = static_cast<float>(chunk[i]);
         mic_write_index = wrap_index(mic_write_index + 1);
@@ -40,24 +52,50 @@ float detect_sweep_streaming(const int16_t* chunk, size_t chunk_len, float sweep
 
     mic_filled = std::min(mic_filled + chunk_len, MAX_BUFFER_SIZE);
 
-    if (mic_filled < SWEEP_LEN) return 0.0f;
+    if (mic_filled < SWEEP_LEN) {
+        return 0.0f;
+    }
+
+    if (sweep_l2_norm <= 0.0f) {
+        return 0.0f;
+    }
 
     float max_similarity = 0.0f;
+    const size_t num_windows = mic_filled - SWEEP_LEN + 1;
 
-    for (size_t i = 0; i <= mic_filled - SWEEP_LEN; i++) {
+    for (size_t i = 0; i < num_windows; i++) {
+        // Gather one candidate window from ring buffer into contiguous scratch
         for (size_t j = 0; j < SWEEP_LEN; j++) {
             size_t idx = wrap_index(mic_write_index + MAX_BUFFER_SIZE - mic_filled + i + j);
             work_buf[j] = mic_buffer[idx];
         }
 
         float dot = 0.0f;
-        float norm_mic = 0.0f;
-        dsps_dotprod_f32(work_buf, sweep_f32, &dot, SWEEP_LEN);
-        dsps_dotprod_f32(work_buf, work_buf, &norm_mic, SWEEP_LEN);
+        float mic_energy = 0.0f;
 
-        float similarity = dot / (sweep_norm * sqrtf(norm_mic) + 1e-8f);
-        if (similarity > max_similarity) {
-            max_similarity = similarity;
+        dsps_dotprod_f32(work_buf, sweep_f32, &dot, SWEEP_LEN);
+        dsps_dotprod_f32(work_buf, work_buf, &mic_energy, SWEEP_LEN);
+
+        // Ignore near-silent / too-weak windows
+        if (mic_energy < min_window_energy) {
+            continue;
+        }
+
+        const float mic_l2_norm = sqrtf(mic_energy);
+        if (mic_l2_norm <= 0.0f) {
+            continue;
+        }
+
+        float similarity = dot / (sweep_l2_norm * mic_l2_norm);
+
+        // Guard against tiny floating-point overshoot
+        if (similarity > 1.0f) similarity = 1.0f;
+        if (similarity < -1.0f) similarity = -1.0f;
+
+        float score = use_abs_similarity ? fabsf(similarity) : similarity;
+
+        if (score > max_similarity) {
+            max_similarity = score;
         }
     }
 
@@ -321,8 +359,7 @@ void MicTester::request_stop() {
 void MicTester::pause_detection() {
   if (this->state_ == State::DETECTING_SWEEP) {
     this->continuous_ = false;
-    this->state_ = State::STARTING_MICROPHONE;
-    this->desired_state_ = State::DETECTING_SWEEP;
+    this->state_ = State::DETECTION_PAUSED;
     ESP_LOGD(TAG, "Detection paused (mic stays running)");
   }
 }
@@ -331,7 +368,9 @@ void MicTester::reset_detection() {
   this->clear_buffers_();
   mic_write_index = 0;
   mic_filled = 0;
-  if (this->state_ == State::STARTING_MICROPHONE || this->state_ == State::DETECTING_SWEEP) {
+  std::fill_n(mic_buffer, MAX_BUFFER_SIZE, 0.0f);
+  std::fill_n(work_buf, SWEEP_LEN, 0.0f);
+  if (this->state_ == State::STARTING_MICROPHONE || this->state_ == State::DETECTING_SWEEP || this->state_ == State::DETECTION_PAUSED) {
     this->continuous_ = true;
     this->state_ = State::DETECTING_SWEEP;
     ESP_LOGD(TAG, "Detection reset (ch=%d)", this->channel_);
