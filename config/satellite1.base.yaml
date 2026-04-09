@@ -83,8 +83,7 @@ packages:
   buttons: !include common/buttons.yaml
   ha: !include common/home_assistant.yaml
   mp: !include common/media_player.yaml
-  va: !include common/voice_assistant.yaml
-  timer: !include common/timer.yaml
+  #va: !include common/voice_assistant.yaml
   led_ring: !include common/led_ring.yaml
 
   ## OPTIONAL COMPONENTS

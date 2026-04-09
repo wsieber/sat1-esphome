@@ -26,6 +26,7 @@ packages:
         - ble.disable:
 
   home-assistant-voice: !include satellite1.base.yaml
+  microphones: !include common/microphones.yaml
 
 esphome:
   project:
