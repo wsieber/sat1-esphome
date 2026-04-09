@@ -28,38 +28,6 @@ void ImprovSerialComponent::setup() {
   }
 }
 
-void ImprovSerialComponent::loop() {
-  if (this->last_read_byte_ && (millis() - this->last_read_byte_ > IMPROV_SERIAL_TIMEOUT)) {
-    this->last_read_byte_ = 0;
-    this->rx_buffer_.clear();
-    ESP_LOGV(TAG, "Timeout");
-  }
-
-  auto byte = this->read_byte_();
-  while (byte.has_value()) {
-    if (this->parse_improv_serial_byte_(byte.value())) {
-      this->last_read_byte_ = millis();
-    } else {
-      this->last_read_byte_ = 0;
-      this->rx_buffer_.clear();
-    }
-    byte = this->read_byte_();
-  }
-
-  if (this->state_ == improv_ext::STATE_PROVISIONING) {
-    if (wifi::global_wifi_component->is_connected()) {
-      wifi::global_wifi_component->save_wifi_sta(this->connecting_sta_.get_ssid(),
-                                                 this->connecting_sta_.get_password());
-      this->connecting_sta_ = {};
-      this->cancel_timeout("wifi-connect-timeout");
-      this->set_state_(improv_ext::STATE_PROVISIONED);
-
-      std::vector<uint8_t> url = this->build_rpc_settings_response_(improv_ext::WIFI_SETTINGS);
-      this->send_response_(url);
-    }
-  }
-}
-
 void ImprovSerialComponent::dump_config() { ESP_LOGCONFIG(TAG, "Improv Serial:"); }
 
 optional<uint8_t> ImprovSerialComponent::read_byte_() {
@@ -179,6 +147,39 @@ void ImprovSerialComponent::write_data_(const uint8_t *data, const size_t size) 
 #endif
 }
 
+void ImprovSerialComponent::loop() {
+  if (this->last_read_byte_ && (millis() - this->last_read_byte_ > IMPROV_SERIAL_TIMEOUT)) {
+    this->last_read_byte_ = 0;
+    this->rx_buffer_.clear();
+    ESP_LOGV(TAG, "Timeout");
+  }
+
+  auto byte = this->read_byte_();
+  while (byte.has_value()) {
+    if (this->parse_improv_serial_byte_(byte.value())) {
+      this->last_read_byte_ = millis();
+    } else {
+      this->last_read_byte_ = 0;
+      this->rx_buffer_.clear();
+    }
+    byte = this->read_byte_();
+  }
+
+  if (this->state_ == improv_ext::STATE_PROVISIONING) {
+    if (wifi::global_wifi_component->is_connected()) {
+      wifi::global_wifi_component->save_wifi_sta(this->connecting_sta_.get_ssid(),
+                                                 this->connecting_sta_.get_password());
+      this->connecting_sta_ = {};
+      this->cancel_timeout("wifi-connect-timeout");
+      this->set_state_(improv_ext::STATE_PROVISIONED);
+
+      std::vector<uint8_t> url = this->build_rpc_settings_response_(improv_ext::WIFI_SETTINGS);
+      this->send_response_(url);
+    }
+  }
+}
+
+
 std::vector<uint8_t> ImprovSerialComponent::build_rpc_settings_response_(improv_ext::Command command) {
   std::vector<std::string> urls;
 #ifdef USE_IMPROV_SERIAL_NEXT_URL
@@ -291,6 +292,15 @@ bool ImprovSerialComponent::parse_improv_payload_(improv_ext::ImprovCommand &com
       // Send empty response to signify the end of the list.
       std::vector<uint8_t> data =
           improv_ext::build_rpc_response(improv_ext::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
+      this->send_response_(data);
+      return true;
+    }
+    case improv_ext::TRIGGER_ACTION: {
+      ESP_LOGD(TAG, "Received Improv trigger action");
+      ExtAction ext_action = ExtAction(command);
+      ESP_LOGD(TAG, "action: %s", ext_action.get_action().c_str() );
+      this->defer([this, ext_action]() { this->action_request_trigger_->trigger(ext_action);  });
+      std::vector<uint8_t> data = improv_ext::build_rpc_response( improv_ext::TRIGGER_ACTION, {"received"}, false);
       this->send_response_(data);
       return true;
     }
