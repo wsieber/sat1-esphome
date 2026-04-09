@@ -6,7 +6,13 @@ from pathlib import Path
 
 from esphome import automation, external_files
 import esphome.codegen as cg
-from esphome.components import audio, esp32, media_player, network, ota, psram, speaker, snapcast
+from esphome.components import audio, esp32, media_player, network, ota, psram, speaker
+try:
+    from esphome.components import snapcast
+except:
+    snapcast = None
+
+
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_BUFFER_SIZE,
@@ -323,7 +329,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_MUTE): automation.validate_automation(single=True),
             cv.Optional(CONF_ON_UNMUTE): automation.validate_automation(single=True),
             cv.Optional(CONF_ON_VOLUME): automation.validate_automation(single=True),
-            cv.Optional(CONF_SNAPCAST_CLIENT): cv.use_id(snapcast.SnapcastClient)
+            cv.Optional(CONF_SNAPCAST_CLIENT): cv.use_id(snapcast.SnapcastClient) if snapcast else {}
         }
     ),
     cv.only_on_esp32,
@@ -388,7 +394,7 @@ async def to_code(config):
                     _get_supported_format_struct(media_pipeline_config, "MEDIA")
                 )
             )
-    if client_id := config.get(CONF_SNAPCAST_CLIENT):
+    if snapcast and (client_id := config.get(CONF_SNAPCAST_CLIENT)):
         snapcast_client = await cg.get_variable(client_id)
         cg.add( var.set_snapcast_client(snapcast_client))
 
