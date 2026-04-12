@@ -232,11 +232,11 @@ media_player:
       - id: mute_switch_off_sound
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/mute_switch_off.flac
       - id: timer_finished_sound
-        file: https://github.com/wsieber/sat1-esphome/sounds/bugs.flac
+        file: https://github.com/wsieber/sat1-esphome/raw/devsounds/bugs.flac
       - id: wake_word_triggered_sound
-        file: https://github.com/wsieber/sat1-esphome/sounds/greetingsearthlings.flac
+        file: https://github.com/wsieber/sat1-esphome/raw/devsounds/greetingsearthlings.flac
       - id: jack_connected_sound
-        file: https://github.com/wsieber/sat1-esphome/sounds/r2.wav
+        file: https://github.com/wsieber/sat1-esphome/raw/devsounds/r2.wav
       - id: jack_disconnected_sound
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/jack_disconnected.flac
 
