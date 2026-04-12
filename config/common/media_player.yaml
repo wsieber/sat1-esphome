@@ -238,7 +238,7 @@ media_player:
       - id: jack_connected_sound
         file: https://github.com/wsieber/sat1-esphome/raw/staging/sounds/r2.wav
       - id: jack_disconnected_sound
-        file: file: https://github.com/wsieber/sat1-esphome/raw/staging/sounds/r2.wav
+        file: https://github.com/wsieber/sat1-esphome/raw/staging/sounds/r2.wav
 
 script:
   # Script executed when we want to play sounds on the device.
