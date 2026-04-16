@@ -417,7 +417,7 @@ void SpeakerMediaPlayer::loop() {
         uint32_t timeout_ms = 0;
         if (this->curr_media_item_.has_value()) {
           // Only delay starting playback if moving on the next playlist item or repeating the current item
-          timeout_ms = this->announcement_playlist_delay_ms_;
+          timeout_ms = this->media_playlist_delay_ms_;
         }
         this->curr_media_item_ = next_item.value();
         if (next_item.value().url.has_value()) {
