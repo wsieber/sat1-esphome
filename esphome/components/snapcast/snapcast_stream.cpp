@@ -1031,8 +1031,13 @@ void SnapcastStream::stream_task_() {
       const uint32_t timeout = this->time_stats_.is_ready() ? 500 : 10;
       if (this->read_and_process_messages_(stream_package_buffer.get(), timeout) == ESP_FAIL) {
         this->release_wifi_high_performance_();
-        this->set_state_(StreamState::RECONNECTING);
-        xTaskNotify(transport_task_handle, DISCONNECT_BIT, eSetBits);
+        if (this->state_ == StreamState::ERROR) {
+          this->want_streaming_.store(false, std::memory_order_relaxed);
+          ESP_LOGW(TAG, "stream in ERROR, deferring disconnect to client shutdown sequence");
+        } else {
+          this->set_state_(StreamState::RECONNECTING);
+          xTaskNotify(transport_task_handle, DISCONNECT_BIT, eSetBits);
+        }
         ESP_LOGW(TAG, "read_and_process_messages failed, curr_state: %d\n", this->state_);
         ESP_LOGW(TAG, "msg: %s\n", this->error_msg_.c_str());
       }
