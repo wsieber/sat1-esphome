@@ -1,5 +1,5 @@
 import esphome.config_validation as cv
-from esphome.components import socket
+from esphome.components import socket, wifi
 import esphome.codegen as cg
 from esphome import automation
 from esphome.const import CONF_ID
@@ -11,16 +11,19 @@ CODEOWNERS = ["@gnumpi"]
 
 CONF_SERVER_IP = "server_ip"
 
+
 def _consume_sockets(config):
     """Register socket needs for this component."""
     # Example: 1 mdns scan + 2 concurrent client connections
     socket.consume_sockets(3, "snapcast")(config)
     return config
 
+
 def AUTO_LOAD():
     if CORE.is_esp8266 or CORE.is_libretiny:
         return ["async_tcp", "json", "socket"]
     return ["json", "socket"]
+
 
 snapcast_ns = cg.esphome_ns.namespace("snapcast")
 SnapcastClient = snapcast_ns.class_("SnapcastClient", cg.Component)
@@ -35,20 +38,26 @@ DisableAction = snapcast_ns.class_(
 )
 
 CONFIG_SCHEMA = cv.All(
-    cv.Schema({
-        cv.GenerateID(): cv.declare_id(SnapcastClient),
-        cv.Optional(CONF_SERVER_IP) : cv.ipaddress
-    }),
-     _consume_sockets,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(SnapcastClient),
+            cv.Optional(CONF_SERVER_IP): cv.ipaddress,
+        }
+    ),
+    _consume_sockets,
 )
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
-    if CONF_SERVER_IP in config :
-        cg.add(var.set_server_ip(str(config[CONF_SERVER_IP])))    
-    
+    wifi.enable_runtime_power_save_control()
+    if CONF_SERVER_IP in config:
+        cg.add(var.set_server_ip(str(config[CONF_SERVER_IP])))
+
     cg.add_define("USE_SNAPCAST", True)
     cg.add_define("SNAPCAST_DEBUG", False)
+    cg.add_define("SNAPCAST_DEBUG_VERBOSE", False)
 
 
 SNAPCAST_ACTION_SCHEMA = cv.Schema(

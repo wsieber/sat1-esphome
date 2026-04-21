@@ -21,6 +21,12 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
+#if defined(USE_WIFI_RUNTIME_POWER_SAVE) && defined(USE_WIFI)
+#include "esphome/components/wifi/wifi_component.h"
+#if SNAPCAST_DEBUG && defined(USE_ESP32)
+#include <esp_wifi.h>
+#endif
+#endif
 
 extern "C" {
 #include <sys/select.h>
@@ -45,6 +51,24 @@ static const uint8_t STREAM_TASK_PRIORITY = 14;
 static const uint32_t CONNECTION_TIMEOUT_MS = 2000;
 static const size_t TASK_STACK_SIZE = 4 * 1024;
 static const uint32_t TIME_SYNC_INTERVAL_MS = 2000;
+#if SNAPCAST_DEBUG
+static const uint32_t WIFI_PS_VERIFY_TIMEOUT_MS = 2000;
+#endif
+
+#if SNAPCAST_DEBUG && defined(USE_ESP32) && defined(USE_WIFI_RUNTIME_POWER_SAVE) && defined(USE_WIFI)
+const char *wifi_ps_mode_to_str_(wifi_ps_type_t mode) {
+  switch (mode) {
+    case WIFI_PS_NONE:
+      return "NONE";
+    case WIFI_PS_MIN_MODEM:
+      return "MIN_MODEM";
+    case WIFI_PS_MAX_MODEM:
+      return "MAX_MODEM";
+    default:
+      return "UNKNOWN";
+  }
+}
+#endif
 
 enum StreamTaskBits : uint32_t {
   // Command sent by the main controller logic to the transport task.
@@ -729,6 +753,10 @@ void SnapcastStream::stream_task_() {
   std::shared_ptr<ChunkedRingBuffer> stream_package_buffer = ChunkedRingBuffer::create(256 * 1024);
 
   auto on_exit_task = [&]() {
+    this->release_wifi_high_performance_();
+#if SNAPCAST_DEBUG
+    this->wifi_ps_verify_pending_ = false;
+#endif
     this->stream_task_exiting_ = true;
     if (this->outgoing_queue_) {
       // Drain and delete any pending messages so they don't leak.
@@ -908,6 +936,7 @@ void SnapcastStream::stream_task_() {
       }
 
       if (notify_value & CONNECTION_CLOSED_BIT) {
+        this->release_wifi_high_performance_();
         this->codec_header_sent_ = false;
         if (destroy_requested) {
           // pass
@@ -935,10 +964,13 @@ void SnapcastStream::stream_task_() {
       }
     }
 
+    this->poll_wifi_ps_verification_();
+
     if (this->state_ == StreamState::CONNECTED_IDLE || this->state_ == StreamState::STREAMING) {
       this->send_time_sync_();
       const uint32_t timeout = this->time_stats_.is_ready() ? 500 : 10;
       if (this->read_and_process_messages_(stream_package_buffer.get(), timeout) == ESP_FAIL) {
+        this->release_wifi_high_performance_();
         this->set_state_(StreamState::RECONNECTING);
         xTaskNotify(transport_task_handle, DISCONNECT_BIT, eSetBits);
         ESP_LOGW(TAG, "read_and_process_messages failed, curr_state: %d\n", this->state_);
@@ -952,12 +984,104 @@ void SnapcastStream::stream_task_() {
 
 void SnapcastStream::set_state_(StreamState new_state) {
   this->state_ = new_state;
+
   if (this->notification_target_ != nullptr) {
     xTaskNotify(this->notification_target_, static_cast<uint32_t>(this->state_), eSetValueWithOverwrite);
   }
   if (this->on_status_update_) {
     this->on_status_update_(this->state_, 255, false);  // 255 for volume means do not set
   }
+}
+
+void SnapcastStream::request_wifi_high_performance_() {
+#if defined(USE_WIFI_RUNTIME_POWER_SAVE) && defined(USE_WIFI)
+  if (this->wifi_high_perf_requested_) {
+    return;
+  }
+  auto *wifi = wifi::global_wifi_component;
+  if (wifi == nullptr) {
+    ESP_LOGW(TAG, "WiFi component unavailable; cannot request high-performance mode");
+    return;
+  }
+  if (!wifi->request_high_performance()) {
+    ESP_LOGW(TAG, "Failed to request WiFi high-performance mode");
+    return;
+  }
+  this->wifi_high_perf_requested_ = true;
+  ESP_LOGD(TAG, "Requested WiFi high-performance mode");
+  this->schedule_wifi_ps_verification_("request_high_performance", true);
+#endif
+}
+
+void SnapcastStream::release_wifi_high_performance_() {
+#if defined(USE_WIFI_RUNTIME_POWER_SAVE) && defined(USE_WIFI)
+#if SNAPCAST_DEBUG
+  this->wifi_ps_verify_pending_ = false;
+#endif
+  if (!this->wifi_high_perf_requested_) {
+    return;
+  }
+  auto *wifi = wifi::global_wifi_component;
+  if (wifi == nullptr) {
+    ESP_LOGW(TAG, "WiFi component unavailable; cannot release high-performance mode");
+    this->wifi_high_perf_requested_ = false;
+    return;
+  }
+  if (!wifi->release_high_performance()) {
+    ESP_LOGW(TAG, "Failed to release WiFi high-performance mode");
+    return;
+  }
+  this->wifi_high_perf_requested_ = false;
+  ESP_LOGD(TAG, "Released WiFi high-performance mode");
+#endif
+}
+
+void SnapcastStream::schedule_wifi_ps_verification_(const char *reason, bool expect_none) {
+#if SNAPCAST_DEBUG && defined(USE_ESP32) && defined(USE_WIFI_RUNTIME_POWER_SAVE) && defined(USE_WIFI)
+  this->wifi_ps_verify_pending_ = true;
+  this->wifi_ps_expect_none_ = expect_none;
+  this->wifi_ps_verify_reason_ = reason;
+  this->wifi_ps_verify_deadline_ms_ = millis() + WIFI_PS_VERIFY_TIMEOUT_MS;
+#else
+  (void) reason;
+  (void) expect_none;
+#endif
+}
+
+void SnapcastStream::poll_wifi_ps_verification_() {
+#if SNAPCAST_DEBUG && defined(USE_ESP32) && defined(USE_WIFI_RUNTIME_POWER_SAVE) && defined(USE_WIFI)
+  if (!this->wifi_ps_verify_pending_) {
+    return;
+  }
+
+  wifi_ps_type_t ps_mode = WIFI_PS_NONE;
+  const esp_err_t err = esp_wifi_get_ps(&ps_mode);
+  const uint32_t now = millis();
+  const bool timed_out = static_cast<int32_t>(now - this->wifi_ps_verify_deadline_ms_) >= 0;
+
+  if (err != ESP_OK) {
+    if (timed_out) {
+      ESP_LOGW(TAG, "WiFi PS verify (%s) failed: %s", this->wifi_ps_verify_reason_, esp_err_to_name(err));
+      this->wifi_ps_verify_pending_ = false;
+    }
+    return;
+  }
+
+  const bool at_expected_mode = this->wifi_ps_expect_none_ ? (ps_mode == WIFI_PS_NONE) : true;
+  if (at_expected_mode) {
+    ESP_LOGI(TAG, "WiFi PS verify (%s): current=%s (%d)", this->wifi_ps_verify_reason_, wifi_ps_mode_to_str_(ps_mode),
+             static_cast<int>(ps_mode));
+    this->wifi_ps_verify_pending_ = false;
+  } else {
+    if (timed_out) {
+      ESP_LOGW(TAG, "WiFi PS verify (%s): expected %s, current=%s (%d)", this->wifi_ps_verify_reason_,
+               this->wifi_ps_expect_none_ ? "NONE" : "ANY", wifi_ps_mode_to_str_(ps_mode), static_cast<int>(ps_mode));
+      this->wifi_ps_verify_pending_ = false;
+    }
+  }
+#else
+  // No-op in non-debug or unsupported targets.
+#endif
 }
 
 void SnapcastStream::get_target_snapshot_(std::string &server, uint32_t &port) {
@@ -984,6 +1108,7 @@ void SnapcastStream::start_streaming_() {
     rb->reset();
     this->codec_header_sent_ = false;
     this->send_hello_();
+    this->request_wifi_high_performance_();
     this->set_state_(StreamState::STREAMING);
     return;
   }
@@ -994,6 +1119,7 @@ void SnapcastStream::stop_streaming_() {
     return;
   }
   ESP_LOGD(TAG, "received stop_streamin_()");
+  this->release_wifi_high_performance_();
   this->set_state_(StreamState::CONNECTED_IDLE);
 }
 
