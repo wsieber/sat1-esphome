@@ -45,6 +45,8 @@ namespace snapcast {
 static const char *const TAG = "snapcast_stream";
 constexpr uint32_t SYNC_READY_TIMEOUT_MS = 12000;
 constexpr uint32_t MIN_WIRE_BEFORE_SYNC_TIMEOUT = 20;
+constexpr int64_t RESUME_MIN_LEAD_US = 35000;
+constexpr uint32_t RESUME_ALIGN_MAX_WAIT_MS = 400;
 
 static const int32_t TX_BUFFER_SIZE = 1024;
 static const int32_t RX_BUFFER_SIZE = 4096;
@@ -719,6 +721,22 @@ esp_err_t SnapcastStream::read_and_process_messages_(ChunkedRingBuffer *read_rin
         const tv_t now = tv_t::now();
         const int64_t lead_us = (time_stamp - now).to_microseconds();
 
+        if (this->resume_alignment_pending_) {
+          const uint32_t align_elapsed_ms = millis() - this->resume_alignment_started_ms_;
+          if (lead_us < RESUME_MIN_LEAD_US && align_elapsed_ms < RESUME_ALIGN_MAX_WAIT_MS) {
+            this->resume_alignment_dropped_++;
+            read_ring_buffer->release_read_chunk(chunk);
+            vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
+          }
+#if SNAPCAST_DEBUG
+          ESP_LOGI(TAG, "resume align: accepted first chunk lead=%lld us after %lu ms (dropped=%lu, sync_ready=%d)",
+                   static_cast<long long>(lead_us), static_cast<unsigned long>(align_elapsed_ms),
+                   static_cast<unsigned long>(this->resume_alignment_dropped_), this->time_stats_.is_ready());
+#endif
+          this->resume_alignment_pending_ = false;
+        }
+
 #if SNAPCAST_DEBUG
         static tv_t last_time_stamp = time_stamp;
         if ((time_stamp - last_time_stamp).to_millis() > 24) {
@@ -1153,6 +1171,9 @@ void SnapcastStream::start_streaming_() {
     this->sync_bootstrap_started_ms_ = millis();
     this->sync_ready_logged_ = false;
     this->codec_header_sent_ = false;
+    this->resume_alignment_pending_ = true;
+    this->resume_alignment_started_ms_ = millis();
+    this->resume_alignment_dropped_ = 0;
     this->send_hello_();
     this->request_wifi_high_performance_();
     this->set_state_(StreamState::STREAMING);
@@ -1168,6 +1189,7 @@ void SnapcastStream::stop_streaming_() {
   this->reset_sync_wait_watchdog_();
   this->sync_bootstrap_started_ms_ = 0;
   this->sync_ready_logged_ = false;
+  this->resume_alignment_pending_ = false;
   this->release_wifi_high_performance_();
   this->set_state_(StreamState::CONNECTED_IDLE);
 }

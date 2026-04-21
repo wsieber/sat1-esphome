@@ -196,6 +196,10 @@ class SnapcastStream {
 
   uint32_t sync_bootstrap_started_ms_{0};
   bool sync_ready_logged_{false};
+
+  bool resume_alignment_pending_{false};
+  uint32_t resume_alignment_started_ms_{0};
+  uint32_t resume_alignment_dropped_{0};
 };
 
 }  // namespace snapcast
