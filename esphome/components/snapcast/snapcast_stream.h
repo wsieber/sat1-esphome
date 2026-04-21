@@ -151,6 +151,10 @@ class SnapcastStream {
   void start_streaming_();
   void stop_streaming_();
   void set_state_(StreamState new_state);
+  void request_wifi_high_performance_();
+  void release_wifi_high_performance_();
+  void schedule_wifi_ps_verification_(const char *reason, bool expect_none);
+  void poll_wifi_ps_verification_();
 
   void send_message_(SnapcastMessage *msg);
   void send_hello_();
@@ -162,6 +166,14 @@ class SnapcastStream {
   bool codec_header_sent_{false};
   uint8_t *codec_header_{nullptr};
   size_t codec_header_size_{0};
+
+  bool wifi_high_perf_requested_{false};
+#if SNAPCAST_DEBUG
+  bool wifi_ps_verify_pending_{false};
+  bool wifi_ps_expect_none_{false};
+  uint32_t wifi_ps_verify_deadline_ms_{0};
+  const char *wifi_ps_verify_reason_{nullptr};
+#endif
 };
 
 }  // namespace snapcast

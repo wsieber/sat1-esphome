@@ -219,7 +219,7 @@ size_t TimedAudioSourceTransferBuffer::transfer_data_from_source(TickType_t tick
     this->increase_buffer_length(read_now);
 
     if (new_time_stamp > tv_t(0, 0)) {
-#if SNAPCAST_DEBUG
+#if SNAPCAST_DEBUG_VERBOSE
       if ((new_time_stamp - this->current_time_stamp_).to_microseconds() > 24000) {
         printf("transfer-from-source: packet loss, diff: %" PRId64 " us\n",
                (new_time_stamp - this->current_time_stamp_).to_microseconds());
@@ -255,7 +255,7 @@ esp_err_t TimedAudioSinkTransferBuffer::transfer_data_to_sink(TickType_t ticks_t
       const int64_t desired_playout_time_us = this->current_time_stamp_.to_microseconds();
       static int64_t last_time_stamp = desired_playout_time_us;
 
-#if SNAPCAST_DEBUG
+#if SNAPCAST_DEBUG_VERBOSE
       bool stamp_off = false;
       if (desired_playout_time_us - last_time_stamp != 24000) {
         printf("packet stamp off by %" PRId64 " us\n", desired_playout_time_us - last_time_stamp - 24000);
@@ -272,7 +272,7 @@ esp_err_t TimedAudioSinkTransferBuffer::transfer_data_to_sink(TickType_t ticks_t
       if (playout_at > 0 && desired_playout_time_us && ms_since_last_adjustment > 20) {
         int64_t now = esp_timer_get_time();
         int64_t delta_us = desired_playout_time_us - playout_at;
-#if SNAPCAST_DEBUG
+#if SNAPCAST_DEBUG_VERBOSE
         if (delta_us != 0) {
           printf("detla_us %" PRId64 " (Now: %" PRId64 ")\n", delta_us, now);
           printf("TimeStamp: %" PRId64 ", in %" PRId64 " us \n", desired_playout_time_us,
@@ -309,7 +309,7 @@ esp_err_t TimedAudioSinkTransferBuffer::transfer_data_to_sink(TickType_t ticks_t
             this->increase_buffer_length(frame_size);
           }
         } else if (desired_playout_time_us <= now) {
-#if SNAPCAST_DEBUG
+#if SNAPCAST_DEBUG_VERBOSE
           printf("transfer-buffer: skipping full frame: delta: %" PRId64 "\n", desired_playout_time_us - now);
 #endif
           size_t available = this->available();
@@ -325,7 +325,7 @@ esp_err_t TimedAudioSinkTransferBuffer::transfer_data_to_sink(TickType_t ticks_t
           if (drop_frames == total_frames) {
             size_t available = this->available();
             this->decrease_buffer_length(available);
-#if SNAPCAST_DEBUG
+#if SNAPCAST_DEBUG_VERBOSE
             printf("detla_us %" PRId64 " (Now: %" PRId64 ")\n", delta_us, now);
             printf("TimeStamp: %" PRId64 ", in %" PRId64 " us\n", desired_playout_time_us,
                    desired_playout_time_us - now);
@@ -346,7 +346,7 @@ esp_err_t TimedAudioSinkTransferBuffer::transfer_data_to_sink(TickType_t ticks_t
         while (!this->speaker_->update_buffer_states(bytes_written)) {
         }
       }
-#if SNAPCAST_DEBUG
+#if SNAPCAST_DEBUG_VERBOSE
       if (bytes_written && bytes_written != this->available()) {
         printf("wrote %d bytes to speaker, remaining %lu\n", bytes_written, this->available() - bytes_written);
       }
