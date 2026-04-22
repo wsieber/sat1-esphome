@@ -147,7 +147,7 @@ void SpeakerMediaPlayer::watch_media_commands_() {
         this->state = media_player::MEDIA_PLAYER_STATE_ON;
         publish_state();
       }
-#endif      
+#endif
       PlaylistItem playlist_item;
       if (media_command.url.has_value()) {
         playlist_item.url = *media_command.url.value();
@@ -197,7 +197,7 @@ void SpeakerMediaPlayer::watch_media_commands_() {
             this->state = media_player::MEDIA_PLAYER_STATE_ON;
             publish_state();
           }
-#endif        
+#endif
           if ((this->media_pipeline_ != nullptr) && (this->is_paused_)) {
             this->media_pipeline_->set_pause_state(false);
           }
@@ -213,7 +213,7 @@ void SpeakerMediaPlayer::watch_media_commands_() {
         case media_player::MEDIA_PLAYER_COMMAND_TURN_OFF:
           this->is_turn_off_ = true;
           // Intentional Fall-through
-#endif          
+#endif
         case media_player::MEDIA_PLAYER_COMMAND_PAUSE:
         case media_player::MEDIA_PLAYER_COMMAND_STOP:
           // Pipelines do not stop immediately after calling the stop command, so confirm its stopped before unpausing.
@@ -221,9 +221,9 @@ void SpeakerMediaPlayer::watch_media_commands_() {
 #ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
           if (this->single_pipeline_() || (media_command.announce.has_value() && media_command.announce.value()) ||
               (this->is_turn_off_ && this->announcement_pipeline_state_ != AudioPipelineState::STOPPED)) {
-#else          
+#else
           if (this->single_pipeline_() || (media_command.announce.has_value() && media_command.announce.value())) {
-#endif            
+#endif
             if (this->announcement_pipeline_ != nullptr) {
               this->cancel_timeout("next_ann");
               this->announcement_playlist_.clear();
@@ -444,12 +444,12 @@ void SpeakerMediaPlayer::loop() {
       } else {
         this->curr_media_item_.reset();
 #ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
-          if (this->state != media_player::MEDIA_PLAYER_STATE_OFF) {
-            this->state = media_player::MEDIA_PLAYER_STATE_IDLE;
-          }
-#else        
+        if (this->state != media_player::MEDIA_PLAYER_STATE_OFF) {
+          this->state = media_player::MEDIA_PLAYER_STATE_IDLE;
+        }
+#else
         this->state = media_player::MEDIA_PLAYER_STATE_IDLE;
-#endif        
+#endif
       }
     }
 

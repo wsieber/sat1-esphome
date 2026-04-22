@@ -57,7 +57,7 @@ class AudioTransferBuffer {
   /// @brief Tests if there is any data in the transfer buffer or the source/sink.
   /// @return True if there is data, false otherwise.
   virtual bool has_buffered_data() const;
-  
+
   /// @brief Reallocates the transfer buffer, preserving any existing data.
   /// @param new_buffer_size The new size in bytes. Must be at least as large as available().
   /// @return True if successful, false otherwise. On failure, the original buffer remains valid.
@@ -113,7 +113,6 @@ class AudioSinkTransferBuffer : public AudioTransferBuffer {
   void clear_buffered_data() override;
 
   bool has_buffered_data() const override;
-
 
  protected:
 #ifdef USE_SPEAKER
