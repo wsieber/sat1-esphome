@@ -455,6 +455,8 @@ async def to_code(config):
     ota.request_ota_state_listeners()
 
     esp32.add_idf_component(name="espressif/esp-tflite-micro", ref="1.3.3~1")
+    # Pin esp-nn for stable future builds (esp-tflite-micro depends on esp-nn)
+    esp32.add_idf_component(name="espressif/esp-nn", ref="1.1.2")
 
     cg.add_build_flag("-DTF_LITE_STATIC_MEMORY")
     cg.add_build_flag("-DTF_LITE_DISABLE_X86_NEON")
@@ -529,8 +531,15 @@ async def to_code(config):
 MICRO_WAKE_WORD_ACTION_SCHEMA = cv.Schema({cv.GenerateID(): cv.use_id(MicroWakeWord)})
 
 
-@register_action("micro_wake_word.start", StartAction, MICRO_WAKE_WORD_ACTION_SCHEMA, synchronous=True)
-@register_action("micro_wake_word.stop", StopAction, MICRO_WAKE_WORD_ACTION_SCHEMA, synchronous=True)
+@register_action(
+    "micro_wake_word.start",
+    StartAction,
+    MICRO_WAKE_WORD_ACTION_SCHEMA,
+    synchronous=True,
+)
+@register_action(
+    "micro_wake_word.stop", StopAction, MICRO_WAKE_WORD_ACTION_SCHEMA, synchronous=True
+)
 @register_condition(
     "micro_wake_word.is_running", IsRunningCondition, MICRO_WAKE_WORD_ACTION_SCHEMA
 )
@@ -562,7 +571,7 @@ MICRO_WAKE_WORLD_MODEL_ACTION_SCHEMA = automation.maybe_simple_id(
 @register_condition(
     "micro_wake_word.model_is_enabled",
     ModelIsEnabledCondition,
-    MICRO_WAKE_WORLD_MODEL_ACTION_SCHEMA    
+    MICRO_WAKE_WORLD_MODEL_ACTION_SCHEMA,
 )
 async def model_action(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
