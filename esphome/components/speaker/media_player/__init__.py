@@ -486,8 +486,8 @@ async def play_on_device_media_media_action(config, action_id, template_arg, arg
 async def restore_volume_action(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
-    volume = await cg.templatable(config[CONF_VOLUME], args, float)
+    volume = await cg.templatable(config[CONF_VOLUME], args, cg.float_)
     cg.add(var.set_volume(volume))
-    muted = await cg.templatable(config[CONF_MUTE], args, float)
+    muted = await cg.templatable(config[CONF_MUTE], args, cg.bool_)
     cg.add(var.set_muted(muted))
     return var

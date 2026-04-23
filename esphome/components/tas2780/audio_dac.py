@@ -84,10 +84,10 @@ async def tas2780_action(config, action_id, template_arg, args):
     tas2780 = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, tas2780)
     vol_min_ = config.get(CONF_VOL_RNG_MIN)
-    template_ = await cg.templatable(vol_min_, args, float)
+    template_ = await cg.templatable(vol_min_, args, cg.float_)
     cg.add(var.set_vol_range_min(template_))
     vol_max_ = config.get(CONF_VOL_RNG_MAX)
-    template_ = await cg.templatable(vol_max_, args, float)
+    template_ = await cg.templatable(vol_max_, args, cg.float_)
     cg.add(var.set_vol_range_max(template_))
     if CONF_AMP_LEVEL_IDX in config:
         amp_level_idx = config.get(CONF_AMP_LEVEL_IDX)
