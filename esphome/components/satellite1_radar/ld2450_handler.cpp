@@ -196,15 +196,13 @@ void LD2450Handler::loop(uart::UARTDevice *uart) {
   step_command_tx_();
 }
 
-void LD2450Handler::factory_reset(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2450Handler::factory_reset() {
   static const uint8_t cmd[] = {0x02, 0x00, 0xA2, 0x00, 0x04, 0x03, 0x02, 0x01};
   send_command_(cmd, sizeof(cmd));
   ESP_LOGI(TAG_LD2450, "Factory reset command sent");
 }
 
-void LD2450Handler::restart(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2450Handler::restart() {
   static const uint8_t cmd[] = {0x02, 0x00, 0xA3, 0x00, 0x04, 0x03, 0x02, 0x01};
   send_command_(cmd, sizeof(cmd));
   ESP_LOGI(TAG_LD2450, "Restart command sent");

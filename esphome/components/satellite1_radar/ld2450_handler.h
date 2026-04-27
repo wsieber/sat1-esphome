@@ -71,10 +71,8 @@ class LD2450Handler {
   void setup(uart::UARTDevice *uart);
   void loop(uart::UARTDevice *uart);
 
-  void factory_reset(uart::UARTDevice *uart);
-  void restart(uart::UARTDevice *uart);
-  void factory_reset() { this->factory_reset(this->uart_); }
-  void restart() { this->restart(this->uart_); }
+  void factory_reset();
+  void restart();
 
   void set_single_target();
   void set_multi_target();

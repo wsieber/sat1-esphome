@@ -51,20 +51,17 @@ class LD2410Handler {
   void setup(uart::UARTDevice *uart);
   void loop(uart::UARTDevice *uart);
 
-  void factory_reset(uart::UARTDevice *uart);
-  void restart(uart::UARTDevice *uart);
-  void query_params(uart::UARTDevice *uart);
-  void factory_reset() { this->factory_reset(this->uart_); }
-  void restart() { this->restart(this->uart_); }
-  void query_params() { this->query_params(this->uart_); }
-  void write_gate_config(uart::UARTDevice *uart);
-  void set_distance_resolution(uart::UARTDevice *uart, bool fine);
-  void enable_engineering_mode(uart::UARTDevice *uart);
-  void disable_engineering_mode(uart::UARTDevice *uart);
+  void factory_reset();
+  void restart();
+  void query_params();
+  void write_gate_config();
+  void set_distance_resolution(bool fine);
+  void enable_engineering_mode();
+  void disable_engineering_mode();
 
   const LD2410BackendConfig &get_backend_config() const { return config_; }
   bool set_backend_config(const LD2410BackendConfig &cfg);
-  void apply_backend_config(uart::UARTDevice *uart);
+  void apply_backend_config();
   float get_gate_move_energy(size_t gate) const { return (gate < NUM_GATES) ? gate_move_energy_values_[gate] : 0.0f; }
   float get_gate_still_energy(size_t gate) const { return (gate < NUM_GATES) ? gate_still_energy_values_[gate] : 0.0f; }
 

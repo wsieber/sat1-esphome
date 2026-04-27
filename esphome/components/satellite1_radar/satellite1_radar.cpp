@@ -45,7 +45,7 @@ void Satellite1Radar::loop() {
   if (detected_type_ == RadarType::LD2410 && ld2410_ != nullptr) {
     ld2410_->loop(this);
     if (this->write_config_pending_.exchange(false)) {
-      ld2410_->apply_backend_config(this);
+      ld2410_->apply_backend_config();
     }
   } else if (detected_type_ == RadarType::LD2450 && ld2450_ != nullptr) {
     ld2450_->loop(this);
@@ -198,7 +198,7 @@ void Satellite1Radar::start_tuner() {
     tuner_server_.set_ld2410_apply_callback([this]() { this->write_config_pending_.store(true); });
 
     if (ld2410_ != nullptr)
-      ld2410_->enable_engineering_mode(this);
+      ld2410_->enable_engineering_mode();
   }
 
   tuner_server_.start();
@@ -210,7 +210,7 @@ void Satellite1Radar::stop_tuner() {
       ld2450_->on_target_update = nullptr;
   } else if (detected_type_ == RadarType::LD2410) {
     if (ld2410_ != nullptr)
-      ld2410_->disable_engineering_mode(this);
+      ld2410_->disable_engineering_mode();
   }
   tuner_server_.stop();
 }

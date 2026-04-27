@@ -24,7 +24,7 @@ void LD2410Handler::setup(uart::UARTDevice *uart) {
   if (config_pref_.load(&loaded)) {
     this->set_backend_config(loaded);
   }
-  query_params(uart);
+  query_params();
 }
 
 void LD2410Handler::create_and_register_entities() {
@@ -205,24 +205,21 @@ void LD2410Handler::loop(uart::UARTDevice *uart) {
   process_queue_();
 }
 
-void LD2410Handler::factory_reset(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2410Handler::factory_reset() {
   queue_enter_config_();
   queue_config_command_(0x00A2, nullptr, 0);
   queue_exit_config_();
   ESP_LOGI(TAG_LD2410, "Factory reset queued");
 }
 
-void LD2410Handler::restart(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2410Handler::restart() {
   queue_enter_config_();
   queue_config_command_(0x00A3, nullptr, 0);
   queue_exit_config_();
   ESP_LOGI(TAG_LD2410, "Restart queued");
 }
 
-void LD2410Handler::query_params(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2410Handler::query_params() {
   queue_enter_config_();
   queue_config_command_(0x00A0, nullptr, 0);
   queue_config_command_(0x0061, nullptr, 0);
@@ -231,8 +228,7 @@ void LD2410Handler::query_params(uart::UARTDevice *uart) {
   ESP_LOGI(TAG_LD2410, "Parameter query queued");
 }
 
-void LD2410Handler::write_gate_config(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2410Handler::write_gate_config() {
   queue_enter_config_();
 
   uint32_t max_move = static_cast<uint32_t>(config_.max_move_gate);
@@ -265,8 +261,7 @@ void LD2410Handler::write_gate_config(uart::UARTDevice *uart) {
   ESP_LOGI(TAG_LD2410, "Gate configuration queued");
 }
 
-void LD2410Handler::set_distance_resolution(uart::UARTDevice *uart, bool fine) {
-  uart_ = uart;
+void LD2410Handler::set_distance_resolution(bool fine) {
   queue_enter_config_();
   uint8_t data[2];
   put_uint16_le_(data, fine ? 0x0001 : 0x0000);
@@ -300,21 +295,19 @@ bool LD2410Handler::set_backend_config(const LD2410BackendConfig &cfg) {
   return true;
 }
 
-void LD2410Handler::apply_backend_config(uart::UARTDevice *uart) {
-  this->write_gate_config(uart);
-  this->set_distance_resolution(uart, config_.distance_resolution == 1);
+void LD2410Handler::apply_backend_config() {
+  this->write_gate_config();
+  this->set_distance_resolution(config_.distance_resolution == 1);
 }
 
-void LD2410Handler::enable_engineering_mode(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2410Handler::enable_engineering_mode() {
   queue_enter_config_();
   queue_config_command_(0x0062, nullptr, 0);
   queue_exit_config_();
   ESP_LOGI(TAG_LD2410, "Engineering mode enable queued");
 }
 
-void LD2410Handler::disable_engineering_mode(uart::UARTDevice *uart) {
-  uart_ = uart;
+void LD2410Handler::disable_engineering_mode() {
   queue_enter_config_();
   queue_config_command_(0x0063, nullptr, 0);
   queue_exit_config_();
