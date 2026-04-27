@@ -15,6 +15,7 @@ namespace satellite1_radar {
 
 class LD2410Handler {
  public:
+  explicit LD2410Handler(uart::UARTDevice &uart) : uart_(uart) {}
   static constexpr size_t NUM_GATES = 9;  // g0 through g8
 
   struct LD2410BackendConfig {
@@ -48,8 +49,8 @@ class LD2410Handler {
   void set_icon_indices(const IconMeta &meta) { this->icon_meta_ = meta; }
   void create_and_register_entities();
 
-  void setup(uart::UARTDevice *uart);
-  void loop(uart::UARTDevice *uart);
+  void setup();
+  void loop();
 
   void factory_reset();
   void restart();
@@ -69,7 +70,7 @@ class LD2410Handler {
   static constexpr size_t MAX_BUF = 256;
   std::unique_ptr<uint8_t[]> buf_{};
   size_t buf_pos_{0};
-  uart::UARTDevice *uart_{nullptr};
+  uart::UARTDevice &uart_;
 
   static constexpr size_t MAX_CMD_FRAME = 64;
   static constexpr size_t MAX_CMD_QUEUE_DEPTH = 32;

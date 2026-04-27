@@ -19,6 +19,7 @@ using TargetUpdateCallback = std::function<void(int target, float x, float y)>;
 
 class LD2450Handler {
  public:
+  explicit LD2450Handler(uart::UARTDevice &uart) : uart_(uart) {}
   static constexpr size_t NUM_TARGETS = 3;
   static constexpr size_t NUM_ZONES = 3;
   static constexpr size_t MAX_ZONE_POINTS = 8;
@@ -68,8 +69,8 @@ class LD2450Handler {
   void set_icon_indices(const IconMeta &meta) { this->icon_meta_ = meta; }
   void create_and_register_entities();
 
-  void setup(uart::UARTDevice *uart);
-  void loop(uart::UARTDevice *uart);
+  void setup();
+  void loop();
 
   void factory_reset();
   void restart();
@@ -91,7 +92,7 @@ class LD2450Handler {
   static const int DEFAULT_STABILITY = 5;
   std::unique_ptr<uint8_t[]> buf_{};
   size_t buf_pos_{0};
-  uart::UARTDevice *uart_{nullptr};
+  uart::UARTDevice &uart_;
   bool fw_version_received_{false};
   int fw_retry_count_{0};
   uint32_t fw_next_retry_ms_{0};

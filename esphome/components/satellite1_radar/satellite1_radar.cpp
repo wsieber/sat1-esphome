@@ -43,12 +43,12 @@ void Satellite1Radar::loop() {
 
   // Normal operation after detection
   if (detected_type_ == RadarType::LD2410 && ld2410_ != nullptr) {
-    ld2410_->loop(this);
+    ld2410_->loop();
     if (this->write_config_pending_.exchange(false)) {
       ld2410_->apply_backend_config();
     }
   } else if (detected_type_ == RadarType::LD2450 && ld2450_ != nullptr) {
-    ld2450_->loop(this);
+    ld2450_->loop();
   }
 }
 
@@ -141,21 +141,21 @@ void Satellite1Radar::finalize_detection_(RadarType type) {
   }
 
   if (type == RadarType::LD2410) {
-    ld2410_ = std::unique_ptr<LD2410Handler>(new LD2410Handler());
+    ld2410_ = std::unique_ptr<LD2410Handler>(new LD2410Handler(*this));
     ld2450_.reset();
     ld2410_->set_device_class_indices(this->device_class_meta_);
     ld2410_->set_unit_indices(this->unit_meta_);
     ld2410_->set_icon_indices(this->icon_meta_);
     ld2410_->create_and_register_entities();
-    ld2410_->setup(this);
+    ld2410_->setup();
   } else if (type == RadarType::LD2450) {
-    ld2450_ = std::unique_ptr<LD2450Handler>(new LD2450Handler());
+    ld2450_ = std::unique_ptr<LD2450Handler>(new LD2450Handler(*this));
     ld2410_.reset();
     ld2450_->set_device_class_indices(this->device_class_meta_);
     ld2450_->set_unit_indices(this->unit_meta_);
     ld2450_->set_icon_indices(this->icon_meta_);
     ld2450_->create_and_register_entities();
-    ld2450_->setup(this);
+    ld2450_->setup();
   }
 }
 

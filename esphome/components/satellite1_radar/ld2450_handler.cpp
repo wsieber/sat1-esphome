@@ -21,9 +21,8 @@ static inline bool deadline_passed_(uint32_t deadline, uint32_t now) {
   return static_cast<int32_t>(now - deadline) >= 0;
 }
 
-void LD2450Handler::setup(uart::UARTDevice *uart) {
+void LD2450Handler::setup() {
   ESP_LOGI(TAG_LD2450, "Initializing LD2450 handler");
-  uart_ = uart;
   if (!buf_) {
     buf_ = std::unique_ptr<uint8_t[]>(new uint8_t[MAX_BUF]());
   }
@@ -136,9 +135,7 @@ void LD2450Handler::create_and_register_entities() {
   }
 }
 
-void LD2450Handler::loop(uart::UARTDevice *uart) {
-  uart_ = uart;
-
+void LD2450Handler::loop() {
   if (!buf_)
     return;
 
@@ -168,9 +165,9 @@ void LD2450Handler::loop(uart::UARTDevice *uart) {
   }
 
   size_t bytes_processed = 0;
-  while (uart_->available() && bytes_processed < MAX_UART_BYTES_PER_LOOP) {
+  while (uart_.available() && bytes_processed < MAX_UART_BYTES_PER_LOOP) {
     uint8_t byte;
-    if (!uart_->read_byte(&byte))
+    if (!uart_.read_byte(&byte))
       break;
     bytes_processed++;
 
@@ -573,17 +570,14 @@ bool LD2450Handler::dequeue_command_(QueuedCommand &queued) {
 }
 
 void LD2450Handler::step_command_tx_() {
-  if (uart_ == nullptr)
-    return;
-
   uint32_t now = millis();
   switch (tx_state_) {
     case TxState::IDLE:
       if (!has_active_command_ && !dequeue_command_(active_command_))
         return;
       has_active_command_ = true;
-      uart_->write_array(LD2450_ENABLE_CONFIG, sizeof(LD2450_ENABLE_CONFIG));
-      uart_->flush();
+      uart_.write_array(LD2450_ENABLE_CONFIG, sizeof(LD2450_ENABLE_CONFIG));
+      uart_.flush();
       tx_state_ = TxState::WAIT_ENABLE;
       tx_deadline_ms_ = now + 50;
       return;
@@ -595,9 +589,9 @@ void LD2450Handler::step_command_tx_() {
         tx_state_ = TxState::IDLE;
         return;
       }
-      uart_->write_array(LD2450_FRAME_HEADER, sizeof(LD2450_FRAME_HEADER));
-      uart_->write_array(active_command_.bytes, active_command_.len);
-      uart_->flush();
+      uart_.write_array(LD2450_FRAME_HEADER, sizeof(LD2450_FRAME_HEADER));
+      uart_.write_array(active_command_.bytes, active_command_.len);
+      uart_.flush();
       tx_state_ = TxState::WAIT_AFTER_COMMAND;
       tx_deadline_ms_ = now + 50;
       return;
@@ -605,8 +599,8 @@ void LD2450Handler::step_command_tx_() {
     case TxState::WAIT_AFTER_COMMAND:
       if (!deadline_passed_(tx_deadline_ms_, now))
         return;
-      uart_->write_array(LD2450_DISABLE_CONFIG, sizeof(LD2450_DISABLE_CONFIG));
-      uart_->flush();
+      uart_.write_array(LD2450_DISABLE_CONFIG, sizeof(LD2450_DISABLE_CONFIG));
+      uart_.flush();
       tx_state_ = TxState::WAIT_DISABLE;
       tx_deadline_ms_ = now + 20;
       return;

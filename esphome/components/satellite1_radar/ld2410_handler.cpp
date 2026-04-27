@@ -13,9 +13,8 @@ namespace satellite1_radar {
 static const char *const TAG_LD2410 = "satellite1_radar.ld2410";
 static constexpr size_t MAX_UART_BYTES_PER_LOOP = 128;
 
-void LD2410Handler::setup(uart::UARTDevice *uart) {
+void LD2410Handler::setup() {
   ESP_LOGI(TAG_LD2410, "Initializing LD2410 handler");
-  uart_ = uart;
   if (!buf_) {
     buf_ = std::unique_ptr<uint8_t[]>(new uint8_t[MAX_BUF]());
   }
@@ -139,16 +138,14 @@ void LD2410Handler::create_and_register_entities() {
   }
 }
 
-void LD2410Handler::loop(uart::UARTDevice *uart) {
-  uart_ = uart;
-
+void LD2410Handler::loop() {
   if (!buf_)
     return;
 
   size_t bytes_processed = 0;
-  while (uart_->available() && bytes_processed < MAX_UART_BYTES_PER_LOOP) {
+  while (uart_.available() && bytes_processed < MAX_UART_BYTES_PER_LOOP) {
     uint8_t byte;
-    if (!uart_->read_byte(&byte))
+    if (!uart_.read_byte(&byte))
       break;
     bytes_processed++;
 
@@ -317,9 +314,6 @@ void LD2410Handler::disable_engineering_mode() {
 uint16_t LD2410Handler::to_uint16_(uint8_t lo, uint8_t hi) { return (static_cast<uint16_t>(hi) << 8) | lo; }
 
 void LD2410Handler::process_queue_() {
-  if (uart_ == nullptr)
-    return;
-
   if (waiting_for_ack_) {
     if (millis() - ack_wait_start_ > ACK_TIMEOUT_MS) {
       ESP_LOGW(TAG_LD2410, "Command ACK timeout, skipping");
@@ -332,7 +326,7 @@ void LD2410Handler::process_queue_() {
   if (!dequeue_frame_(cmd))
     return;
 
-  uart_->write_array(cmd.frame, cmd.len);
+  uart_.write_array(cmd.frame, cmd.len);
   waiting_for_ack_ = true;
   ack_wait_start_ = millis();
 }
