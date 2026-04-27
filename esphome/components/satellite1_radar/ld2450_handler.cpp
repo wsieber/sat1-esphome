@@ -155,6 +155,18 @@ void LD2450Handler::loop(uart::UARTDevice *uart) {
     ESP_LOGW(TAG_LD2450, "Firmware query timeout (attempt %d/%d)", fw_retry_count_, FW_MAX_RETRIES);
   }
 
+  if (bt_restart_pending_ && deadline_passed_(bt_restart_due_ms_, now)) {
+    bt_restart_pending_ = false;
+    restart_radar_();
+    bt_readback_pending_ = true;
+    bt_readback_due_ms_ = now + BT_READBACK_DELAY_MS;
+  }
+
+  if (bt_readback_pending_ && deadline_passed_(bt_readback_due_ms_, now)) {
+    bt_readback_pending_ = false;
+    request_full_status_();
+  }
+
   size_t bytes_processed = 0;
   while (uart_->available() && bytes_processed < MAX_UART_BYTES_PER_LOOP) {
     uint8_t byte;
@@ -264,6 +276,7 @@ bool LD2450Handler::set_backend_config(const LD2450BackendConfig &cfg) {
       turn_bluetooth_on();
     else
       turn_bluetooth_off();
+    schedule_post_bluetooth_sync_();
   }
   if (multi_target_changed) {
     if (config_.multi_target_enabled)
@@ -284,6 +297,7 @@ void LD2450Handler::set_bluetooth_enabled(bool enabled) {
     turn_bluetooth_on();
   else
     turn_bluetooth_off();
+  schedule_post_bluetooth_sync_();
 }
 
 void LD2450Handler::set_multi_target_enabled(bool enabled) {
@@ -448,8 +462,13 @@ void LD2450Handler::handle_ack_frame_(const uint8_t *buf, size_t len) {
     return;
 
   uint16_t cmd_word = to_uint16(buf[6], buf[7]);
+  uint8_t status = buf[8];
 
-  if (cmd_word == 0x01A0 && len >= 20) {
+  if (status != 0) {
+    ESP_LOGW(TAG_LD2450, "Command 0x%04X failed (status=%u)", cmd_word, status);
+  }
+
+  if (cmd_word == 0x01A0 && status == 0 && len >= 20) {
     char ver[32];
     snprintf(ver, sizeof(ver), "V%u.%02X.%02X%02X%02X%02X", buf[13], buf[12], buf[17], buf[16], buf[15], buf[14]);
     if (version_text_sensor != nullptr)
@@ -459,10 +478,14 @@ void LD2450Handler::handle_ack_frame_(const uint8_t *buf, size_t len) {
     ESP_LOGI(TAG_LD2450, "Firmware version: %s", ver);
   }
 
-  if (cmd_word == 0x01A5 && len >= 16) {
+  if (cmd_word == 0x01A5 && status == 0 && len >= 16) {
     char mac[20];
     snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X", buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]);
     ESP_LOGI(TAG_LD2450, "BT MAC: %s", mac);
+  }
+
+  if (cmd_word == 0x01A4 && status == 0) {
+    ESP_LOGI(TAG_LD2450, "Bluetooth %s command acknowledged", config_.bluetooth_enabled ? "enable" : "disable");
   }
 }
 
@@ -478,6 +501,43 @@ void LD2450Handler::request_firmware_version_() {
   fw_next_retry_ms_ = now + 3000;
   ESP_LOGI(TAG_LD2450, "Requesting firmware version (attempt %d/%d)", fw_retry_count_, FW_MAX_RETRIES);
   enqueue_command_(cmd, sizeof(cmd));
+}
+
+void LD2450Handler::request_mac_address_() {
+  static const uint8_t cmd[] = {0x04, 0x00, 0xA5, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01};
+  enqueue_command_(cmd, sizeof(cmd));
+}
+
+void LD2450Handler::query_target_tracking_mode_() {
+  static const uint8_t cmd[] = {0x02, 0x00, 0x91, 0x00, 0x04, 0x03, 0x02, 0x01};
+  enqueue_command_(cmd, sizeof(cmd));
+}
+
+void LD2450Handler::query_zone_() {
+  static const uint8_t cmd[] = {0x02, 0x00, 0xC1, 0x00, 0x04, 0x03, 0x02, 0x01};
+  enqueue_command_(cmd, sizeof(cmd));
+}
+
+void LD2450Handler::restart_radar_() {
+  static const uint8_t cmd[] = {0x02, 0x00, 0xA3, 0x00, 0x04, 0x03, 0x02, 0x01};
+  ESP_LOGI(TAG_LD2450, "Restarting radar after Bluetooth change");
+  enqueue_command_(cmd, sizeof(cmd));
+}
+
+void LD2450Handler::request_full_status_() {
+  ESP_LOGI(TAG_LD2450, "Reading back status after Bluetooth change");
+  request_firmware_version_();
+  request_mac_address_();
+  query_target_tracking_mode_();
+  query_zone_();
+}
+
+void LD2450Handler::schedule_post_bluetooth_sync_() {
+  const uint32_t now = millis();
+  bt_restart_pending_ = true;
+  bt_restart_due_ms_ = now + BT_RESTART_DELAY_MS;
+  bt_readback_pending_ = false;
+  ESP_LOGI(TAG_LD2450, "Scheduled restart/readback for Bluetooth %s", config_.bluetooth_enabled ? "enable" : "disable");
 }
 
 void LD2450Handler::enqueue_command_(const uint8_t *cmd, size_t len) {

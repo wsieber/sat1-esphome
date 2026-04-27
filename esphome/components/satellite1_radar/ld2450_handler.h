@@ -99,6 +99,12 @@ class LD2450Handler {
   uint32_t fw_next_retry_ms_{0};
   bool fw_query_in_flight_{false};
   uint32_t fw_query_timeout_ms_{0};
+  bool bt_restart_pending_{false};
+  uint32_t bt_restart_due_ms_{0};
+  bool bt_readback_pending_{false};
+  uint32_t bt_readback_due_ms_{0};
+  static const uint32_t BT_RESTART_DELAY_MS = 200;
+  static const uint32_t BT_READBACK_DELAY_MS = 1500;
 
   enum class TxState : uint8_t {
     IDLE,
@@ -146,6 +152,12 @@ class LD2450Handler {
   void update_zone_states_(int threshold);
   void handle_ack_frame_(const uint8_t *buf, size_t len);
   void request_firmware_version_();
+  void request_mac_address_();
+  void query_target_tracking_mode_();
+  void query_zone_();
+  void restart_radar_();
+  void request_full_status_();
+  void schedule_post_bluetooth_sync_();
   void enqueue_command_(const uint8_t *cmd, size_t len);
   bool dequeue_command_(QueuedCommand &queued);
   void step_command_tx_();
