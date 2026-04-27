@@ -98,10 +98,9 @@ void LD2410Handler::create_and_register_entities() {
 
   if (this->detection_distance == nullptr) {
     this->runtime_detection_distance_sensor_.reset(new Satellite1RadarDynamicSensor());
-    this->runtime_detection_distance_sensor_->configure_dynamic("Radar Detection Distance", ENTITY_CATEGORY_DIAGNOSTIC,
-                                                                true, this->device_class_meta_.distance,
-                                                                this->unit_meta_.centimeter, 0, true,
-                                                                sensor::STATE_CLASS_MEASUREMENT, 0);
+    this->runtime_detection_distance_sensor_->configure_dynamic(
+        "Radar Detection Distance", ENTITY_CATEGORY_DIAGNOSTIC, true, this->device_class_meta_.distance,
+        this->unit_meta_.centimeter, 0, true, sensor::STATE_CLASS_MEASUREMENT, 0);
     App.register_sensor(this->runtime_detection_distance_sensor_.get());
     this->detection_distance = this->runtime_detection_distance_sensor_.get();
   }

@@ -98,7 +98,8 @@ esp_err_t RadarTunerServer::handle_ld2410_get_config_(httpd_req_t *req) {
   char buf[1024];
   int pos = 0;
   pos += snprintf(buf + pos, sizeof(buf) - pos,
-                  "{\"timeout\":%u,\"max_move_gate\":%u,\"max_still_gate\":%u,\"distance_resolution\":\"%s\",\"bluetooth\":%s,\"gate_move_thresholds\":[",
+                  "{\"timeout\":%u,\"max_move_gate\":%u,\"max_still_gate\":%u,\"distance_resolution\":\"%s\","
+                  "\"bluetooth\":%s,\"gate_move_thresholds\":[",
                   static_cast<unsigned int>(cfg.timeout_seconds), static_cast<unsigned int>(cfg.max_move_gate),
                   static_cast<unsigned int>(cfg.max_still_gate), cfg.distance_resolution ? "0.2m" : "0.75m",
                   cfg.bluetooth_enabled ? "true" : "false");
@@ -192,7 +193,8 @@ esp_err_t RadarTunerServer::handle_ld2410_patch_config_(httpd_req_t *req) {
 
   cJSON *move_thresholds = cJSON_GetObjectItemCaseSensitive(root, "gate_move_thresholds");
   if (move_thresholds != nullptr) {
-    if (!cJSON_IsArray(move_thresholds) || cJSON_GetArraySize(move_thresholds) != static_cast<int>(LD2410Handler::NUM_GATES)) {
+    if (!cJSON_IsArray(move_thresholds) ||
+        cJSON_GetArraySize(move_thresholds) != static_cast<int>(LD2410Handler::NUM_GATES)) {
       cJSON_Delete(root);
       httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid gate_move_thresholds");
       return ESP_FAIL;
@@ -210,7 +212,8 @@ esp_err_t RadarTunerServer::handle_ld2410_patch_config_(httpd_req_t *req) {
 
   cJSON *still_thresholds = cJSON_GetObjectItemCaseSensitive(root, "gate_still_thresholds");
   if (still_thresholds != nullptr) {
-    if (!cJSON_IsArray(still_thresholds) || cJSON_GetArraySize(still_thresholds) != static_cast<int>(LD2410Handler::NUM_GATES)) {
+    if (!cJSON_IsArray(still_thresholds) ||
+        cJSON_GetArraySize(still_thresholds) != static_cast<int>(LD2410Handler::NUM_GATES)) {
       cJSON_Delete(root);
       httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid gate_still_thresholds");
       return ESP_FAIL;
@@ -277,11 +280,12 @@ esp_err_t RadarTunerServer::handle_ld2450_get_config_(httpd_req_t *req) {
   const auto &cfg = self->ld2450_->get_backend_config();
   char buf[3072];
   int pos = 0;
-  pos += snprintf(buf + pos, sizeof(buf) - pos,
-                  "{\"detection_range\":%u,\"stability\":%u,\"timeout\":%u,\"bluetooth\":%s,\"multi_target\":%s,\"zones\":[",
-                  static_cast<unsigned int>(cfg.detection_range_cm), static_cast<unsigned int>(cfg.stability),
-                  static_cast<unsigned int>(cfg.timeout_seconds), cfg.bluetooth_enabled ? "true" : "false",
-                  cfg.multi_target_enabled ? "true" : "false");
+  pos += snprintf(
+      buf + pos, sizeof(buf) - pos,
+      "{\"detection_range\":%u,\"stability\":%u,\"timeout\":%u,\"bluetooth\":%s,\"multi_target\":%s,\"zones\":[",
+      static_cast<unsigned int>(cfg.detection_range_cm), static_cast<unsigned int>(cfg.stability),
+      static_cast<unsigned int>(cfg.timeout_seconds), cfg.bluetooth_enabled ? "true" : "false",
+      cfg.multi_target_enabled ? "true" : "false");
 
   for (size_t z = 0; z < LD2450Handler::NUM_ZONES; z++) {
     pos += snprintf(buf + pos, sizeof(buf) - pos, "%s[", z ? "," : "");

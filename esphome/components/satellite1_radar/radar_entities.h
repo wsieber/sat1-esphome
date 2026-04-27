@@ -53,9 +53,8 @@ class Satellite1RadarDynamicSensor : public sensor::Sensor {
                          bool disabled_by_default = false, uint8_t device_class_idx = 0, uint8_t uom_idx = 0,
                          uint8_t icon_idx = 0, bool has_state_class = false,
                          sensor::StateClass state_class = sensor::STATE_CLASS_NONE, int8_t accuracy_decimals = -1) {
-    this->configure_entity_(name, 0,
-                            pack_entity_fields(device_class_idx, uom_idx, icon_idx, false, disabled_by_default,
-                                               entity_category));
+    this->configure_entity_(
+        name, 0, pack_entity_fields(device_class_idx, uom_idx, icon_idx, false, disabled_by_default, entity_category));
     if (has_state_class)
       this->set_state_class(state_class);
     if (accuracy_decimals >= 0)
@@ -67,9 +66,8 @@ class Satellite1RadarDynamicBinarySensor : public binary_sensor::BinarySensor {
  public:
   void configure_dynamic(const char *name, EntityCategory entity_category = ENTITY_CATEGORY_NONE,
                          bool disabled_by_default = false, uint8_t device_class_idx = 0, uint8_t icon_idx = 0) {
-    this->configure_entity_(name, 0,
-                            pack_entity_fields(device_class_idx, 0, icon_idx, false, disabled_by_default,
-                                               entity_category));
+    this->configure_entity_(
+        name, 0, pack_entity_fields(device_class_idx, 0, icon_idx, false, disabled_by_default, entity_category));
   }
 };
 
@@ -77,8 +75,7 @@ class Satellite1RadarDynamicTextSensor : public text_sensor::TextSensor {
  public:
   void configure_dynamic(const char *name, EntityCategory entity_category = ENTITY_CATEGORY_NONE,
                          bool disabled_by_default = false, uint8_t icon_idx = 0) {
-    this->configure_entity_(name, 0,
-                            pack_entity_fields(0, 0, icon_idx, false, disabled_by_default, entity_category));
+    this->configure_entity_(name, 0, pack_entity_fields(0, 0, icon_idx, false, disabled_by_default, entity_category));
   }
 };
 
@@ -97,8 +94,7 @@ class Satellite1RadarTunerSwitch : public switch_::Switch, public Component {
   void dump_config() override {}
   void configure_dynamic(const char *name, EntityCategory entity_category = ENTITY_CATEGORY_NONE,
                          bool disabled_by_default = false, uint8_t icon_idx = 0) {
-    this->configure_entity_(name, 0,
-                            pack_entity_fields(0, 0, icon_idx, false, disabled_by_default, entity_category));
+    this->configure_entity_(name, 0, pack_entity_fields(0, 0, icon_idx, false, disabled_by_default, entity_category));
   }
   void set_write_callback(std::function<void(bool)> callback) { write_callback_ = std::move(callback); }
 
@@ -113,8 +109,7 @@ class Satellite1RadarButton : public button::Button, public Component {
   void dump_config() override {}
   void configure_dynamic(const char *name, EntityCategory entity_category = ENTITY_CATEGORY_NONE,
                          bool disabled_by_default = false, uint8_t icon_idx = 0) {
-    this->configure_entity_(name, 0,
-                            pack_entity_fields(0, 0, icon_idx, false, disabled_by_default, entity_category));
+    this->configure_entity_(name, 0, pack_entity_fields(0, 0, icon_idx, false, disabled_by_default, entity_category));
   }
 
  protected:

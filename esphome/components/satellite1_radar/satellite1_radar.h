@@ -62,12 +62,12 @@ class Satellite1Radar : public Component, public uart::UARTDevice {
   void set_icon_indices(uint8_t radar, uint8_t chip, uint8_t signal, uint8_t motion_sensor, uint8_t account_multiple,
                         uint8_t account, uint8_t account_arrow_right, uint8_t tune_vertical, uint8_t factory,
                         uint8_t restart, uint8_t database_refresh) {
-    this->icon_meta_ = {radar,          chip,           signal,         motion_sensor, account_multiple,
-                        account,        account_arrow_right, tune_vertical,  factory,       restart,
-                        database_refresh};
+    this->icon_meta_ = {
+        radar,         chip,    signal,  motion_sensor,   account_multiple, account, account_arrow_right,
+        tune_vertical, factory, restart, database_refresh};
   }
 
-  protected:
+ protected:
   void process_detection_();
   void finalize_detection_(RadarType type);
   void create_common_entities_();

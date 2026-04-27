@@ -65,12 +65,8 @@ class LD2410Handler {
   const LD2410BackendConfig &get_backend_config() const { return config_; }
   bool set_backend_config(const LD2410BackendConfig &cfg);
   void apply_backend_config(uart::UARTDevice *uart);
-  float get_gate_move_energy(size_t gate) const {
-    return (gate < NUM_GATES) ? gate_move_energy_values_[gate] : 0.0f;
-  }
-  float get_gate_still_energy(size_t gate) const {
-    return (gate < NUM_GATES) ? gate_still_energy_values_[gate] : 0.0f;
-  }
+  float get_gate_move_energy(size_t gate) const { return (gate < NUM_GATES) ? gate_move_energy_values_[gate] : 0.0f; }
+  float get_gate_still_energy(size_t gate) const { return (gate < NUM_GATES) ? gate_still_energy_values_[gate] : 0.0f; }
 
  protected:
   static constexpr size_t MAX_BUF = 256;

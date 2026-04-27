@@ -90,8 +90,8 @@ void LD2450Handler::create_and_register_entities() {
 
   if (this->moving_target_count == nullptr) {
     this->runtime_moving_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
-    this->runtime_moving_target_count_sensor_->configure_dynamic("Radar Targets Moving", ENTITY_CATEGORY_NONE, false,
-                                                                 0, 0, this->icon_meta_.account_arrow_right, true,
+    this->runtime_moving_target_count_sensor_->configure_dynamic("Radar Targets Moving", ENTITY_CATEGORY_NONE, false, 0,
+                                                                 0, this->icon_meta_.account_arrow_right, true,
                                                                  sensor::STATE_CLASS_MEASUREMENT, 0);
     App.register_sensor(this->runtime_moving_target_count_sensor_.get());
     this->moving_target_count = this->runtime_moving_target_count_sensor_.get();
@@ -104,15 +104,15 @@ void LD2450Handler::create_and_register_entities() {
     switch (i) {
       case 0:
         this->runtime_zone_state_text_sensor_[i]->configure_dynamic("Radar Zone 1", ENTITY_CATEGORY_NONE, false,
-                                                                     this->icon_meta_.motion_sensor);
+                                                                    this->icon_meta_.motion_sensor);
         break;
       case 1:
         this->runtime_zone_state_text_sensor_[i]->configure_dynamic("Radar Zone 2", ENTITY_CATEGORY_NONE, false,
-                                                                     this->icon_meta_.motion_sensor);
+                                                                    this->icon_meta_.motion_sensor);
         break;
       default:
         this->runtime_zone_state_text_sensor_[i]->configure_dynamic("Radar Zone 3", ENTITY_CATEGORY_NONE, false,
-                                                                     this->icon_meta_.motion_sensor);
+                                                                    this->icon_meta_.motion_sensor);
         break;
     }
     App.register_text_sensor(this->runtime_zone_state_text_sensor_[i].get());
@@ -346,7 +346,6 @@ void LD2450Handler::parse_data_frame_(const uint8_t *buf) {
     if (on_target_update) {
       on_target_update(static_cast<int>(t), pub_x, pub_y);
     }
-
   }
 
   int threshold = get_stability_threshold_();
