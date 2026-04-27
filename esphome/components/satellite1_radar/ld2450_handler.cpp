@@ -217,12 +217,12 @@ void LD2450Handler::set_multi_target() {
 
 void LD2450Handler::turn_bluetooth_on() {
   static const uint8_t cmd[] = {0x04, 0x00, 0xA4, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01};
-  send_command_(cmd, sizeof(cmd));
+  enqueue_with_retries_(cmd, sizeof(cmd), true);
 }
 
 void LD2450Handler::turn_bluetooth_off() {
   static const uint8_t cmd[] = {0x04, 0x00, 0xA4, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
-  send_command_(cmd, sizeof(cmd));
+  enqueue_with_retries_(cmd, sizeof(cmd), true);
 }
 
 bool LD2450Handler::validate_backend_config_(LD2450BackendConfig &cfg) const {
@@ -271,7 +271,6 @@ bool LD2450Handler::set_backend_config(const LD2450BackendConfig &cfg) {
       turn_bluetooth_on();
     else
       turn_bluetooth_off();
-    schedule_post_bluetooth_sync_();
   }
   if (multi_target_changed) {
     if (config_.multi_target_enabled)
@@ -292,7 +291,6 @@ void LD2450Handler::set_bluetooth_enabled(bool enabled) {
     turn_bluetooth_on();
   else
     turn_bluetooth_off();
-  schedule_post_bluetooth_sync_();
 }
 
 void LD2450Handler::set_multi_target_enabled(bool enabled) {
@@ -458,6 +456,7 @@ void LD2450Handler::handle_ack_frame_(const uint8_t *buf, size_t len) {
 
   uint16_t cmd_word = to_uint16(buf[6], buf[7]);
   uint8_t status = buf[8];
+  mark_tx_ack_(cmd_word, status);
 
   if (status != 0) {
     ESP_LOGW(TAG_LD2450, "Command 0x%04X failed (status=%u)", cmd_word, status);
@@ -481,6 +480,10 @@ void LD2450Handler::handle_ack_frame_(const uint8_t *buf, size_t len) {
 
   if (cmd_word == 0x01A4 && status == 0) {
     ESP_LOGI(TAG_LD2450, "Bluetooth %s command acknowledged", config_.bluetooth_enabled ? "enable" : "disable");
+    if (bt_sync_requested_) {
+      bt_sync_requested_ = false;
+      schedule_post_bluetooth_sync_();
+    }
   }
 }
 
@@ -535,6 +538,87 @@ void LD2450Handler::schedule_post_bluetooth_sync_() {
   ESP_LOGI(TAG_LD2450, "Scheduled restart/readback for Bluetooth %s", config_.bluetooth_enabled ? "enable" : "disable");
 }
 
+void LD2450Handler::enqueue_with_retries_(const uint8_t *cmd, size_t len, bool schedule_bt_sync) {
+  if (schedule_bt_sync)
+    bt_sync_requested_ = true;
+  enqueue_command_(cmd, len);
+}
+
+void LD2450Handler::mark_tx_ack_(uint16_t cmd_word, uint8_t status) {
+  tx_ack_cmd_ = cmd_word;
+  tx_ack_status_ = status;
+  tx_ack_pending_ = true;
+}
+
+bool LD2450Handler::consume_tx_ack_(uint16_t expected_cmd, uint8_t &status_out) {
+  if (!tx_ack_pending_)
+    return false;
+
+  const uint16_t ack_cmd = tx_ack_cmd_;
+  const uint8_t ack_status = tx_ack_status_;
+  tx_ack_pending_ = false;
+
+  if (ack_cmd != expected_cmd) {
+    ESP_LOGD(TAG_LD2450, "Ignoring ACK for 0x%04X while waiting for 0x%04X", ack_cmd, expected_cmd);
+    return false;
+  }
+
+  status_out = ack_status;
+  return true;
+}
+
+void LD2450Handler::mark_command_failed_(uint16_t cmd_word, const char *reason) {
+  last_failed_cmd_ = cmd_word;
+  ack_failure_count_++;
+  ESP_LOGW(TAG_LD2450, "Command 0x%04X failed (%s)", cmd_word, reason);
+}
+
+uint16_t LD2450Handler::command_word_(const QueuedCommand &queued) const {
+  if (queued.len < 4)
+    return 0;
+  return to_uint16(queued.bytes[2], queued.bytes[3]);
+}
+
+void LD2450Handler::drop_active_command_(const char *reason) {
+  const uint16_t cmd_word = command_word_(active_command_);
+  if (cmd_word == 0x01A4 && bt_sync_requested_) {
+    bt_sync_requested_ = false;
+    ESP_LOGW(TAG_LD2450, "Bluetooth command dropped (%s), skipping restart/readback sync", reason);
+  }
+  if (cmd_word != 0)
+    mark_command_failed_(cmd_word, reason);
+  has_active_command_ = false;
+  drop_active_after_disable_ = false;
+  tx_retry_count_ = 0;
+  tx_expected_ack_cmd_ = 0;
+  tx_state_ = TxState::IDLE;
+}
+
+void LD2450Handler::send_enable_config_() {
+  uart_.write_array(LD2450_ENABLE_CONFIG, sizeof(LD2450_ENABLE_CONFIG));
+  uart_.flush();
+  tx_expected_ack_cmd_ = 0x00FF;
+  tx_deadline_ms_ = millis() + COMMAND_ACK_TIMEOUT_MS;
+  tx_state_ = TxState::WAIT_ENABLE_ACK;
+}
+
+void LD2450Handler::send_active_command_() {
+  uart_.write_array(LD2450_FRAME_HEADER, sizeof(LD2450_FRAME_HEADER));
+  uart_.write_array(active_command_.bytes, active_command_.len);
+  uart_.flush();
+  tx_expected_ack_cmd_ = command_word_(active_command_);
+  tx_deadline_ms_ = millis() + COMMAND_ACK_TIMEOUT_MS;
+  tx_state_ = TxState::WAIT_COMMAND_ACK;
+}
+
+void LD2450Handler::send_disable_config_() {
+  uart_.write_array(LD2450_DISABLE_CONFIG, sizeof(LD2450_DISABLE_CONFIG));
+  uart_.flush();
+  tx_expected_ack_cmd_ = 0x00FE;
+  tx_deadline_ms_ = millis() + COMMAND_ACK_TIMEOUT_MS;
+  tx_state_ = TxState::WAIT_DISABLE_ACK;
+}
+
 void LD2450Handler::enqueue_command_(const uint8_t *cmd, size_t len) {
   if (cmd == nullptr || len == 0)
     return;
@@ -570,46 +654,105 @@ bool LD2450Handler::dequeue_command_(QueuedCommand &queued) {
 }
 
 void LD2450Handler::step_command_tx_() {
-  uint32_t now = millis();
+  const uint32_t now = millis();
+  uint8_t ack_status = 0;
+
   switch (tx_state_) {
-    case TxState::IDLE:
+    case TxState::IDLE: {
       if (!has_active_command_ && !dequeue_command_(active_command_))
         return;
       has_active_command_ = true;
-      uart_.write_array(LD2450_ENABLE_CONFIG, sizeof(LD2450_ENABLE_CONFIG));
-      uart_.flush();
-      tx_state_ = TxState::WAIT_ENABLE;
-      tx_deadline_ms_ = now + 50;
+      tx_retry_count_ = 0;
+      drop_active_after_disable_ = false;
+      send_enable_config_();
+      return;
+    }
+
+    case TxState::WAIT_ENABLE_ACK:
+      if (consume_tx_ack_(tx_expected_ack_cmd_, ack_status)) {
+        if (ack_status == 0) {
+          send_active_command_();
+          return;
+        }
+        if (tx_retry_count_ < COMMAND_MAX_RETRIES) {
+          tx_retry_count_++;
+          ESP_LOGW(TAG_LD2450, "Enable config ACK failed (status=%u), retry %u/%u", ack_status, tx_retry_count_,
+                   COMMAND_MAX_RETRIES);
+          send_enable_config_();
+          return;
+        }
+        drop_active_command_("enable config ack failure");
+        return;
+      }
+      if (deadline_passed_(tx_deadline_ms_, now)) {
+        ack_timeout_count_++;
+        if (tx_retry_count_ < COMMAND_MAX_RETRIES) {
+          tx_retry_count_++;
+          ESP_LOGW(TAG_LD2450, "Enable config ACK timeout, retry %u/%u", tx_retry_count_, COMMAND_MAX_RETRIES);
+          send_enable_config_();
+          return;
+        }
+        drop_active_command_("enable config ack timeout");
+      }
       return;
 
-    case TxState::WAIT_ENABLE:
-      if (!deadline_passed_(tx_deadline_ms_, now))
+    case TxState::WAIT_COMMAND_ACK:
+      if (consume_tx_ack_(tx_expected_ack_cmd_, ack_status)) {
+        if (ack_status == 0) {
+          send_disable_config_();
+          return;
+        }
+        if (tx_retry_count_ < COMMAND_MAX_RETRIES) {
+          tx_retry_count_++;
+          ESP_LOGW(TAG_LD2450, "Command ACK failed (cmd=0x%04X status=%u), retry %u/%u", tx_expected_ack_cmd_,
+                   ack_status, tx_retry_count_, COMMAND_MAX_RETRIES);
+          send_enable_config_();
+          return;
+        }
+        drop_active_after_disable_ = true;
+        send_disable_config_();
         return;
-      if (!has_active_command_) {
+      }
+      if (deadline_passed_(tx_deadline_ms_, now)) {
+        ack_timeout_count_++;
+        if (tx_retry_count_ < COMMAND_MAX_RETRIES) {
+          tx_retry_count_++;
+          ESP_LOGW(TAG_LD2450, "Command ACK timeout (cmd=0x%04X), retry %u/%u", tx_expected_ack_cmd_, tx_retry_count_,
+                   COMMAND_MAX_RETRIES);
+          send_enable_config_();
+          return;
+        }
+        drop_active_after_disable_ = true;
+        send_disable_config_();
+      }
+      return;
+
+    case TxState::WAIT_DISABLE_ACK:
+      if (consume_tx_ack_(tx_expected_ack_cmd_, ack_status)) {
+        if (ack_status != 0)
+          ESP_LOGW(TAG_LD2450, "Disable config ACK failed (status=%u)", ack_status);
+        if (drop_active_after_disable_) {
+          drop_active_command_("command ack retries exhausted");
+          return;
+        }
+        has_active_command_ = false;
+        tx_retry_count_ = 0;
+        tx_expected_ack_cmd_ = 0;
         tx_state_ = TxState::IDLE;
         return;
       }
-      uart_.write_array(LD2450_FRAME_HEADER, sizeof(LD2450_FRAME_HEADER));
-      uart_.write_array(active_command_.bytes, active_command_.len);
-      uart_.flush();
-      tx_state_ = TxState::WAIT_AFTER_COMMAND;
-      tx_deadline_ms_ = now + 50;
-      return;
-
-    case TxState::WAIT_AFTER_COMMAND:
-      if (!deadline_passed_(tx_deadline_ms_, now))
-        return;
-      uart_.write_array(LD2450_DISABLE_CONFIG, sizeof(LD2450_DISABLE_CONFIG));
-      uart_.flush();
-      tx_state_ = TxState::WAIT_DISABLE;
-      tx_deadline_ms_ = now + 20;
-      return;
-
-    case TxState::WAIT_DISABLE:
-      if (!deadline_passed_(tx_deadline_ms_, now))
-        return;
-      has_active_command_ = false;
-      tx_state_ = TxState::IDLE;
+      if (deadline_passed_(tx_deadline_ms_, now)) {
+        ack_timeout_count_++;
+        ESP_LOGW(TAG_LD2450, "Disable config ACK timeout");
+        if (drop_active_after_disable_) {
+          drop_active_command_("disable config ack timeout after command failure");
+          return;
+        }
+        has_active_command_ = false;
+        tx_retry_count_ = 0;
+        tx_expected_ack_cmd_ = 0;
+        tx_state_ = TxState::IDLE;
+      }
       return;
   }
 }

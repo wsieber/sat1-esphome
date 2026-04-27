@@ -102,14 +102,17 @@ class LD2450Handler {
   uint32_t bt_restart_due_ms_{0};
   bool bt_readback_pending_{false};
   uint32_t bt_readback_due_ms_{0};
+  bool bt_sync_requested_{false};
   static const uint32_t BT_RESTART_DELAY_MS = 200;
   static const uint32_t BT_READBACK_DELAY_MS = 1500;
+  static const uint32_t COMMAND_ACK_TIMEOUT_MS = 250;
+  static const uint8_t COMMAND_MAX_RETRIES = 2;
 
   enum class TxState : uint8_t {
     IDLE,
-    WAIT_ENABLE,
-    WAIT_AFTER_COMMAND,
-    WAIT_DISABLE,
+    WAIT_ENABLE_ACK,
+    WAIT_COMMAND_ACK,
+    WAIT_DISABLE_ACK,
   };
 
   struct QueuedCommand {
@@ -123,8 +126,17 @@ class LD2450Handler {
   size_t command_queue_count_{0};
   QueuedCommand active_command_{};
   bool has_active_command_{false};
+  bool drop_active_after_disable_{false};
   TxState tx_state_{TxState::IDLE};
   uint32_t tx_deadline_ms_{0};
+  uint16_t tx_expected_ack_cmd_{0};
+  uint8_t tx_retry_count_{0};
+  bool tx_ack_pending_{false};
+  uint16_t tx_ack_cmd_{0};
+  uint8_t tx_ack_status_{0};
+  uint32_t ack_timeout_count_{0};
+  uint32_t ack_failure_count_{0};
+  uint16_t last_failed_cmd_{0};
 
   // Debounce state for aggregate count sensors
   int pub_total_count_{-1}, cand_total_count_{-1}, streak_total_{0};
@@ -157,6 +169,15 @@ class LD2450Handler {
   void restart_radar_();
   void request_full_status_();
   void schedule_post_bluetooth_sync_();
+  void enqueue_with_retries_(const uint8_t *cmd, size_t len, bool schedule_bt_sync);
+  void mark_tx_ack_(uint16_t cmd_word, uint8_t status);
+  bool consume_tx_ack_(uint16_t expected_cmd, uint8_t &status_out);
+  void mark_command_failed_(uint16_t cmd_word, const char *reason);
+  void drop_active_command_(const char *reason);
+  uint16_t command_word_(const QueuedCommand &queued) const;
+  void send_enable_config_();
+  void send_active_command_();
+  void send_disable_config_();
   void enqueue_command_(const uint8_t *cmd, size_t len);
   bool dequeue_command_(QueuedCommand &queued);
   void step_command_tx_();
