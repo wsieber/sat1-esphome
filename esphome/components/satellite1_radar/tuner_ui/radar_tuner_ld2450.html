@@ -51,6 +51,9 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 .panel.ui-disabled *{cursor:not-allowed!important}
 .offline-note{display:none;font-size:12px;color:var(--orange)}
 .offline-note.show{display:block}
+.zone-validity{font-size:11px;line-height:1.4}
+.zone-validity .ok{color:var(--green)}
+.zone-validity .warn{color:var(--orange)}
 @media(max-width:700px){.wrap{flex-direction:column}.panel{width:100%;max-height:40vh;border-left:none;border-top:1px solid var(--border)}}
 </style>
 </head>
@@ -121,6 +124,8 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <button class="btn btn-danger" onclick="clearCurrentZone()">Clear Zone</button>
 </div>
 <button class="btn btn-primary" style="width:100%" onclick="saveAllZones()">Save All Zones</button>
+<p class="hint">A zone needs at least 3 points to be valid and create a zone sensor after reboot.</p>
+<div class="zone-validity" id="zoneValidity"></div>
 </div>
 <div class="group">
 <p class="hint">
@@ -255,6 +260,7 @@ function draw(){
   }
   ctx.restore();
   updateCoords();
+  updateZoneValidity();
 }
 
 function updateCoords(){
@@ -263,6 +269,17 @@ function updateCoords(){
   if(!pts.length){el.innerHTML='<p class="hint">No points yet</p>';return}
   let h='<label>Points ('+pts.length+'/'+MAX_PTS+')</label>';
   pts.forEach((p,i)=>{h+=`<div style="font-size:11px;color:var(--dim)">P${i+1}: (${Math.round(p.x)}, ${Math.round(p.y)})</div>`});
+  el.innerHTML=h;
+}
+
+function updateZoneValidity(){
+  const el=document.getElementById('zoneValidity');
+  let h='';
+  for(let z=0;z<3;z++){
+    const n=zones[z].length;
+    if(n>=3)h+=`<div class="ok">Zone ${z+1}: defined (${n} points)</div>`;
+    else h+=`<div class="warn">Zone ${z+1}: incomplete (${n}/3+ points)</div>`;
+  }
   el.innerHTML=h;
 }
 
@@ -424,10 +441,12 @@ async function saveZone(z){
   if(!connected)return;
   if(z<3){
     const zonesPayload=[zones[0],zones[1],zones[2]].map(arr=>arr.map(p=>({x:Math.round(p.x),y:Math.round(p.y)})));
-    await apiPatch('/api/v1/ld2450/config',{zones:zonesPayload});
+    const res=await apiPatch('/api/v1/ld2450/config',{zones:zonesPayload});
+    setRebootRequired(res.reboot_required===true);
   }else{
     const exclusion=zones[3].map(p=>({x:Math.round(p.x),y:Math.round(p.y)}));
-    await apiPatch('/api/v1/ld2450/config',{exclusion});
+    const res=await apiPatch('/api/v1/ld2450/config',{exclusion});
+    setRebootRequired(res.reboot_required===true);
   }
 }
 

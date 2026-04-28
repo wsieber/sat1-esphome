@@ -102,6 +102,8 @@ void LD2450Handler::create_and_register_entities() {
   }
 
   for (size_t i = 0; i < NUM_ZONES; i++) {
+    if (this->config_.zones[i].points_count < 3)
+      continue;
     if (this->zone_state[i] != nullptr)
       continue;
     this->runtime_zone_state_text_sensor_[i].reset(new Satellite1RadarDynamicTextSensor());
@@ -293,7 +295,17 @@ bool LD2450Handler::set_backend_config(const LD2450BackendConfig &cfg) {
 }
 
 bool LD2450Handler::entity_layout_matches_(const LD2450BackendConfig &lhs, const LD2450BackendConfig &rhs) const {
-  return lhs.multi_target_enabled == rhs.multi_target_enabled;
+  if (lhs.multi_target_enabled != rhs.multi_target_enabled)
+    return false;
+
+  for (size_t i = 0; i < NUM_ZONES; i++) {
+    const bool lhs_defined = lhs.zones[i].points_count >= 3;
+    const bool rhs_defined = rhs.zones[i].points_count >= 3;
+    if (lhs_defined != rhs_defined)
+      return false;
+  }
+
+  return true;
 }
 
 void LD2450Handler::set_bluetooth_enabled(bool enabled) {
