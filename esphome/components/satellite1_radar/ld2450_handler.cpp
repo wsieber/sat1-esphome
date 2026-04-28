@@ -581,7 +581,7 @@ uint16_t LD2450Handler::command_word_(const QueuedCommand &queued) const {
 
 void LD2450Handler::drop_active_command_(const char *reason) {
   const uint16_t cmd_word = command_word_(active_command_);
-  if (cmd_word == 0x01A4 && bt_sync_requested_) {
+  if (cmd_word == 0x00A4 && bt_sync_requested_) {
     bt_sync_requested_ = false;
     ESP_LOGW(TAG_LD2450, "Bluetooth command dropped (%s), skipping restart/readback sync", reason);
   }
@@ -597,7 +597,7 @@ void LD2450Handler::drop_active_command_(const char *reason) {
 void LD2450Handler::send_enable_config_() {
   uart_.write_array(LD2450_ENABLE_CONFIG, sizeof(LD2450_ENABLE_CONFIG));
   uart_.flush();
-  tx_expected_ack_cmd_ = 0x00FF;
+  tx_expected_ack_cmd_ = 0x01FF;
   tx_deadline_ms_ = millis() + COMMAND_ACK_TIMEOUT_MS;
   tx_state_ = TxState::WAIT_ENABLE_ACK;
 }
@@ -606,7 +606,7 @@ void LD2450Handler::send_active_command_() {
   uart_.write_array(LD2450_FRAME_HEADER, sizeof(LD2450_FRAME_HEADER));
   uart_.write_array(active_command_.bytes, active_command_.len);
   uart_.flush();
-  tx_expected_ack_cmd_ = command_word_(active_command_);
+  tx_expected_ack_cmd_ = command_word_(active_command_) | 0x0100;
   tx_deadline_ms_ = millis() + COMMAND_ACK_TIMEOUT_MS;
   tx_state_ = TxState::WAIT_COMMAND_ACK;
 }
@@ -614,7 +614,7 @@ void LD2450Handler::send_active_command_() {
 void LD2450Handler::send_disable_config_() {
   uart_.write_array(LD2450_DISABLE_CONFIG, sizeof(LD2450_DISABLE_CONFIG));
   uart_.flush();
-  tx_expected_ack_cmd_ = 0x00FE;
+  tx_expected_ack_cmd_ = 0x01FE;
   tx_deadline_ms_ = millis() + COMMAND_ACK_TIMEOUT_MS;
   tx_state_ = TxState::WAIT_DISABLE_ACK;
 }
