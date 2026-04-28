@@ -21,9 +21,9 @@ MULTI_CONF = False
 # These values reserve StaticVector capacity in App for post-detection
 # registration of radar entities.
 RUNTIME_ENTITY_HEADROOM = {
-    "binary_sensor": 3,
+    "binary_sensor": 1,
     "sensor": 6,
-    "text_sensor": 4,
+    "text_sensor": 5,
     "switch": 1,
     "button": 3,
 }

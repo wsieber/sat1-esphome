@@ -48,28 +48,20 @@ void LD2450Handler::create_and_register_entities() {
     this->presence_sensor = this->runtime_presence_binary_sensor_.get();
   }
 
-  if (this->moving_target_sensor == nullptr) {
-    this->runtime_moving_target_binary_sensor_.reset(new Satellite1RadarDynamicBinarySensor());
-    this->runtime_moving_target_binary_sensor_->configure_dynamic("Radar Target Moving", ENTITY_CATEGORY_NONE, false,
-                                                                  this->device_class_meta_.motion);
-    App.register_binary_sensor(this->runtime_moving_target_binary_sensor_.get());
-    this->moving_target_sensor = this->runtime_moving_target_binary_sensor_.get();
-  }
-
-  if (this->still_target_sensor == nullptr) {
-    this->runtime_still_target_binary_sensor_.reset(new Satellite1RadarDynamicBinarySensor());
-    this->runtime_still_target_binary_sensor_->configure_dynamic("Radar Target Still", ENTITY_CATEGORY_NONE, false,
-                                                                 this->device_class_meta_.occupancy);
-    App.register_binary_sensor(this->runtime_still_target_binary_sensor_.get());
-    this->still_target_sensor = this->runtime_still_target_binary_sensor_.get();
-  }
-
   if (this->version_text_sensor == nullptr) {
     this->runtime_radar_firmware_text_sensor_.reset(new Satellite1RadarDynamicTextSensor());
     this->runtime_radar_firmware_text_sensor_->configure_dynamic("Radar Firmware", ENTITY_CATEGORY_DIAGNOSTIC, false,
                                                                  this->icon_meta_.chip);
     App.register_text_sensor(this->runtime_radar_firmware_text_sensor_.get());
     this->version_text_sensor = this->runtime_radar_firmware_text_sensor_.get();
+  }
+
+  if (this->target_state_text_sensor == nullptr) {
+    this->runtime_target_state_text_sensor_.reset(new Satellite1RadarDynamicTextSensor());
+    this->runtime_target_state_text_sensor_->configure_dynamic("Radar Target", ENTITY_CATEGORY_NONE, false,
+                                                               this->icon_meta_.motion_sensor);
+    App.register_text_sensor(this->runtime_target_state_text_sensor_.get());
+    this->target_state_text_sensor = this->runtime_target_state_text_sensor_.get();
   }
 
   if (config_.multi_target_enabled) {
@@ -341,8 +333,9 @@ void LD2450Handler::parse_data_frame_(const uint8_t *buf) {
   int still_count = 0;
   int moving_count = 0;
   bool any_target = false;
-  bool any_moving = false;
   bool any_still = false;
+  bool any_approaching = false;
+  bool any_moving_away = false;
 
   for (size_t t = 0; t < NUM_TARGETS; t++) {
     size_t base = 4 + t * 8;
@@ -369,7 +362,11 @@ void LD2450Handler::parse_data_frame_(const uint8_t *buf) {
 
       if (std::fabs(speed) > 0.0f) {
         moving_count++;
-        any_moving = true;
+        if (speed > 0.0f) {
+          any_approaching = true;
+        } else {
+          any_moving_away = true;
+        }
       } else {
         still_count++;
         any_still = true;
@@ -388,8 +385,12 @@ void LD2450Handler::parse_data_frame_(const uint8_t *buf) {
   debounce_sensor_(pub_moving_count_, cand_moving_count_, streak_moving_, moving_count, threshold, moving_target_count);
 
   debounce_binary_(pub_presence_, cand_presence_, streak_presence_, any_target, threshold, presence_sensor);
-  debounce_binary_(pub_has_moving_, cand_has_moving_, streak_has_moving_, any_moving, threshold, moving_target_sensor);
-  debounce_binary_(pub_has_still_, cand_has_still_, streak_has_still_, any_still, threshold, still_target_sensor);
+
+  const char *target_state = any_approaching ? "Approaching"
+                             : any_moving_away ? "Moving Away"
+                             : any_still ? "Still"
+                                         : "Clear";
+  debounce_target_state_(target_state, threshold);
 
   update_zone_states_(threshold);
 }
@@ -872,6 +873,31 @@ void LD2450Handler::debounce_zone_(int z, const std::string &raw, int threshold)
     pub_zone_state_[z] = raw;
     zone_state[z]->publish_state(raw);
     streak_zone_[z] = 0;
+  }
+}
+
+void LD2450Handler::debounce_target_state_(const std::string &raw, int threshold) {
+  if (target_state_text_sensor == nullptr)
+    return;
+  if (threshold <= 0 || pub_target_state_.empty()) {
+    pub_target_state_ = raw;
+    target_state_text_sensor->publish_state(raw);
+    return;
+  }
+  if (raw == pub_target_state_) {
+    streak_target_state_ = 0;
+    return;
+  }
+  if (raw == cand_target_state_) {
+    streak_target_state_++;
+  } else {
+    cand_target_state_ = raw;
+    streak_target_state_ = 1;
+  }
+  if (streak_target_state_ >= threshold) {
+    pub_target_state_ = raw;
+    target_state_text_sensor->publish_state(raw);
+    streak_target_state_ = 0;
   }
 }
 

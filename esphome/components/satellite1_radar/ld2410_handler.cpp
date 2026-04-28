@@ -36,28 +36,20 @@ void LD2410Handler::create_and_register_entities() {
     this->presence_sensor = this->runtime_presence_binary_sensor_.get();
   }
 
-  if (this->moving_target_sensor == nullptr) {
-    this->runtime_moving_target_binary_sensor_.reset(new Satellite1RadarDynamicBinarySensor());
-    this->runtime_moving_target_binary_sensor_->configure_dynamic("Radar Target Moving", ENTITY_CATEGORY_NONE, false,
-                                                                  this->device_class_meta_.motion);
-    App.register_binary_sensor(this->runtime_moving_target_binary_sensor_.get());
-    this->moving_target_sensor = this->runtime_moving_target_binary_sensor_.get();
-  }
-
-  if (this->still_target_sensor == nullptr) {
-    this->runtime_still_target_binary_sensor_.reset(new Satellite1RadarDynamicBinarySensor());
-    this->runtime_still_target_binary_sensor_->configure_dynamic("Radar Target Still", ENTITY_CATEGORY_NONE, false,
-                                                                 this->device_class_meta_.occupancy);
-    App.register_binary_sensor(this->runtime_still_target_binary_sensor_.get());
-    this->still_target_sensor = this->runtime_still_target_binary_sensor_.get();
-  }
-
   if (this->version_text_sensor == nullptr) {
     this->runtime_radar_firmware_text_sensor_.reset(new Satellite1RadarDynamicTextSensor());
     this->runtime_radar_firmware_text_sensor_->configure_dynamic("Radar Firmware", ENTITY_CATEGORY_DIAGNOSTIC, false,
                                                                  this->icon_meta_.chip);
     App.register_text_sensor(this->runtime_radar_firmware_text_sensor_.get());
     this->version_text_sensor = this->runtime_radar_firmware_text_sensor_.get();
+  }
+
+  if (this->target_state_text_sensor == nullptr) {
+    this->runtime_target_state_text_sensor_.reset(new Satellite1RadarDynamicTextSensor());
+    this->runtime_target_state_text_sensor_->configure_dynamic("Radar Target", ENTITY_CATEGORY_NONE, false,
+                                                               this->icon_meta_.motion_sensor);
+    App.register_text_sensor(this->runtime_target_state_text_sensor_.get());
+    this->target_state_text_sensor = this->runtime_target_state_text_sensor_.get();
   }
 
   if (this->moving_distance == nullptr) {
@@ -451,7 +443,6 @@ void LD2410Handler::parse_data_frame_(const uint8_t *buf, size_t len) {
   uint8_t target_state = buf[8];
 
   bool has_moving = (target_state == 0x01 || target_state == 0x03);
-  bool has_still = (target_state == 0x02 || target_state == 0x03);
   bool has_target = (target_state != 0x00);
 
   uint16_t move_dist = to_uint16_(buf[9], buf[10]);
@@ -464,10 +455,9 @@ void LD2410Handler::parse_data_frame_(const uint8_t *buf, size_t len) {
 
   if (presence_sensor != nullptr)
     presence_sensor->publish_state(has_target);
-  if (moving_target_sensor != nullptr)
-    moving_target_sensor->publish_state(has_moving);
-  if (still_target_sensor != nullptr)
-    still_target_sensor->publish_state(has_still);
+
+  const char *target_activity = !has_target ? "Clear" : has_moving ? "Moving" : "Still";
+  debounce_target_state_(target_activity, TARGET_STATE_STREAK_THRESHOLD);
 
   publish_sensor_(moving_distance, static_cast<float>(move_dist));
   publish_sensor_(still_distance, static_cast<float>(still_dist));
@@ -580,6 +570,31 @@ void LD2410Handler::handle_ack_frame_(const uint8_t *buf, size_t len) {
 void LD2410Handler::publish_sensor_(sensor::Sensor *s, float val) {
   if (s != nullptr)
     s->publish_state(val);
+}
+
+void LD2410Handler::debounce_target_state_(const std::string &raw, int threshold) {
+  if (target_state_text_sensor == nullptr)
+    return;
+  if (threshold <= 0 || pub_target_state_.empty()) {
+    pub_target_state_ = raw;
+    target_state_text_sensor->publish_state(raw);
+    return;
+  }
+  if (raw == pub_target_state_) {
+    streak_target_state_ = 0;
+    return;
+  }
+  if (raw == cand_target_state_) {
+    streak_target_state_++;
+  } else {
+    cand_target_state_ = raw;
+    streak_target_state_ = 1;
+  }
+  if (streak_target_state_ >= threshold) {
+    pub_target_state_ = raw;
+    target_state_text_sensor->publish_state(raw);
+    streak_target_state_ = 0;
+  }
 }
 
 void LD2410Handler::put_uint16_le_(uint8_t *buf, uint16_t val) {

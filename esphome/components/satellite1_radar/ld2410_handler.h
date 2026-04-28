@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace esphome {
 namespace satellite1_radar {
@@ -38,11 +39,10 @@ class LD2410Handler {
 
   // Text sensors
   text_sensor::TextSensor *version_text_sensor{nullptr};
+  text_sensor::TextSensor *target_state_text_sensor{nullptr};
 
   // Common entities (references from parent)
   binary_sensor::BinarySensor *presence_sensor{nullptr};
-  binary_sensor::BinarySensor *moving_target_sensor{nullptr};
-  binary_sensor::BinarySensor *still_target_sensor{nullptr};
 
   void set_device_class_indices(const DeviceClassMeta &meta) { this->device_class_meta_ = meta; }
   void set_unit_indices(const UnitMeta &meta) { this->unit_meta_ = meta; }
@@ -89,6 +89,10 @@ class LD2410Handler {
   uint32_t bt_readback_due_ms_{0};
   static const uint32_t BT_READBACK_DELAY_MS = 1500;
   static const uint32_t ACK_TIMEOUT_MS = 1000;
+  static const int TARGET_STATE_STREAK_THRESHOLD = 3;
+  std::string pub_target_state_;
+  std::string cand_target_state_;
+  int streak_target_state_{0};
 
   static uint16_t to_uint16_(uint8_t lo, uint8_t hi);
 
@@ -101,6 +105,7 @@ class LD2410Handler {
   bool dequeue_frame_(QueuedCmd &cmd);
   void parse_data_frame_(const uint8_t *buf, size_t len);
   void handle_ack_frame_(const uint8_t *buf, size_t len);
+  void debounce_target_state_(const std::string &raw, int threshold);
 
   static void publish_sensor_(sensor::Sensor *s, float val);
   static void put_uint16_le_(uint8_t *buf, uint16_t val);
@@ -118,9 +123,8 @@ class LD2410Handler {
   IconMeta icon_meta_{};
 
   std::unique_ptr<Satellite1RadarDynamicBinarySensor> runtime_presence_binary_sensor_{};
-  std::unique_ptr<Satellite1RadarDynamicBinarySensor> runtime_moving_target_binary_sensor_{};
-  std::unique_ptr<Satellite1RadarDynamicBinarySensor> runtime_still_target_binary_sensor_{};
   std::unique_ptr<Satellite1RadarDynamicTextSensor> runtime_radar_firmware_text_sensor_{};
+  std::unique_ptr<Satellite1RadarDynamicTextSensor> runtime_target_state_text_sensor_{};
   std::unique_ptr<Satellite1RadarDynamicSensor> runtime_moving_distance_sensor_{};
   std::unique_ptr<Satellite1RadarDynamicSensor> runtime_still_distance_sensor_{};
   std::unique_ptr<Satellite1RadarDynamicSensor> runtime_moving_energy_sensor_{};

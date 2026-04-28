@@ -58,11 +58,10 @@ class LD2450Handler {
 
   // Text sensors
   text_sensor::TextSensor *version_text_sensor{nullptr};
+  text_sensor::TextSensor *target_state_text_sensor{nullptr};
 
   // Common entities (published by parent, stored as references)
   binary_sensor::BinarySensor *presence_sensor{nullptr};
-  binary_sensor::BinarySensor *moving_target_sensor{nullptr};
-  binary_sensor::BinarySensor *still_target_sensor{nullptr};
 
   void set_device_class_indices(const DeviceClassMeta &meta) { this->device_class_meta_ = meta; }
   void set_unit_indices(const UnitMeta &meta) { this->unit_meta_ = meta; }
@@ -146,13 +145,14 @@ class LD2450Handler {
 
   // Debounce state for binary sensors
   int pub_presence_{-1}, cand_presence_{-1}, streak_presence_{0};
-  int pub_has_moving_{-1}, cand_has_moving_{-1}, streak_has_moving_{0};
-  int pub_has_still_{-1}, cand_has_still_{-1}, streak_has_still_{0};
 
   // Debounce state for zone text sensors
   std::string pub_zone_state_[NUM_ZONES];
   std::string cand_zone_state_[NUM_ZONES];
   int streak_zone_[NUM_ZONES]{};
+  std::string pub_target_state_;
+  std::string cand_target_state_;
+  int streak_target_state_{0};
 
   static uint16_t to_uint16(uint8_t lo, uint8_t hi);
   static int16_t to_signed(uint16_t val);
@@ -187,6 +187,7 @@ class LD2450Handler {
   void debounce_sensor_(int &pub, int &cand, int &streak, int raw, int threshold, sensor::Sensor *s);
   void debounce_binary_(int &pub, int &cand, int &streak, bool raw, int threshold, binary_sensor::BinarySensor *s);
   void debounce_zone_(int z, const std::string &raw, int threshold);
+  void debounce_target_state_(const std::string &raw, int threshold);
 
   static void publish_sensor_(sensor::Sensor *s, float val);
 
@@ -209,9 +210,8 @@ class LD2450Handler {
   IconMeta icon_meta_{};
 
   std::unique_ptr<Satellite1RadarDynamicBinarySensor> runtime_presence_binary_sensor_{};
-  std::unique_ptr<Satellite1RadarDynamicBinarySensor> runtime_moving_target_binary_sensor_{};
-  std::unique_ptr<Satellite1RadarDynamicBinarySensor> runtime_still_target_binary_sensor_{};
   std::unique_ptr<Satellite1RadarDynamicTextSensor> runtime_radar_firmware_text_sensor_{};
+  std::unique_ptr<Satellite1RadarDynamicTextSensor> runtime_target_state_text_sensor_{};
   std::unique_ptr<Satellite1RadarDynamicTextSensor> runtime_zone_state_text_sensor_[NUM_ZONES]{};
   std::unique_ptr<Satellite1RadarDynamicSensor> runtime_target_count_sensor_{};
   std::unique_ptr<Satellite1RadarDynamicSensor> runtime_still_target_count_sensor_{};
