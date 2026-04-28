@@ -43,6 +43,14 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 .theme-toggle{margin-left:auto;background:none;border:none;cursor:pointer;padding:4px;border-radius:4px;color:var(--dim);display:flex;align-items:center}
 .theme-toggle:hover{background:var(--border)}
 .theme-toggle svg{width:18px;height:18px;fill:currentColor}
+.notice{display:none;border:1px solid var(--orange);background:color-mix(in srgb,var(--orange) 12%,transparent);border-radius:6px;padding:10px;gap:8px;flex-direction:column}
+.notice.show{display:flex}
+.notice p{font-size:12px;line-height:1.4;color:var(--text)}
+.ui-disabled{opacity:.45;pointer-events:none;filter:saturate(.6)}
+.panel.ui-disabled{opacity:.5;filter:saturate(.65)}
+.panel.ui-disabled *{cursor:not-allowed!important}
+.offline-note{display:none;font-size:12px;color:var(--orange)}
+.offline-note.show{display:block}
 @media(max-width:700px){.wrap{flex-direction:column}.panel{width:100%;max-height:40vh;border-left:none;border-top:1px solid var(--border)}}
 </style>
 </head>
@@ -55,6 +63,7 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <div class="wrap">
 <div class="canvas-wrap"><canvas id="cv"></canvas></div>
 <div class="panel">
+<p class="offline-note" id="offlineNote">Device offline - controls are disabled.</p>
 <div class="group">
 <label>Max Detection Range (cm)<span class="tooltip">?<span class="tt">Maximum detection range for the LD2450 sensor. The hardware maximum is 600 cm (6 meters). Targets beyond this range are ignored.</span></span></label>
 <div class="row">
@@ -83,6 +92,11 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <label class="toggle"><input type="checkbox" id="multiTargetToggle" onchange="saveMultiTarget()"><span class="slider"></span></label>
 <span id="multiTargetLabel" style="font-size:12px;color:var(--dim)">OFF</span>
 </div>
+</div>
+<div class="notice" id="rebootNotice">
+<p><b>Reboot required.</b> Configuration changes are saved, but require a device reboot to take effect in Home Assistant.</p>
+<p>Note: after reboot, the mmWave config UI will be disabled until it is enabled again from Home Assistant.</p>
+<button class="btn btn-danger" onclick="requestReboot()">Reboot Device</button>
 </div>
 <div class="group">
 <label>Bluetooth<span class="tooltip">?<span class="tt">Enable or disable the radar module's Bluetooth radio.</span></span></label>
@@ -152,7 +166,17 @@ let targets=[{x:0,y:0},{x:0,y:0},{x:0,y:0}];
 let detRange=0;
 let timeout=0;
 let connected=false;
+let rebootRequired=false;
 let W,H,cx,cy,scale;
+
+function setUiEnabled(enabled){
+  const panel=document.querySelector('.panel');
+  panel.classList.toggle('ui-disabled',!enabled);
+  const interactive=document.querySelectorAll('.panel .btn,.panel input');
+  interactive.forEach(el=>{el.disabled=!enabled});
+  document.getElementById('offlineNote').classList.toggle('show',!enabled);
+  document.getElementById('cv').classList.toggle('ui-disabled',!enabled);
+}
 
 function resize(){
   const r=cv.parentElement.getBoundingClientRect();
@@ -243,6 +267,7 @@ function updateCoords(){
 }
 
 function selectZone(z){
+  if(!connected)return;
   activeZone=z;
   document.querySelectorAll('.zone-btns .btn').forEach((b,i)=>{
     b.classList.toggle('active',i===z);
@@ -271,6 +296,7 @@ function pointInPolygon(pts,x,y){
 }
 
 cv.addEventListener('mousedown',e=>{
+  if(!connected)return;
   if(e.button===2)return;
   const rect=cv.getBoundingClientRect();
   const mx=(e.clientX-rect.left)*devicePixelRatio;
@@ -297,6 +323,7 @@ cv.addEventListener('mousedown',e=>{
 });
 
 cv.addEventListener('mousemove',e=>{
+  if(!connected)return;
   const rect=cv.getBoundingClientRect();
   const mx=(e.clientX-rect.left)*devicePixelRatio;
   const my=(e.clientY-rect.top)*devicePixelRatio;
@@ -316,6 +343,7 @@ cv.addEventListener('mouseup',()=>{dragIdx=-1;dragZone=-1;dragAll=false;dragStar
 cv.addEventListener('mouseleave',()=>{dragIdx=-1;dragZone=-1;dragAll=false;dragStart=null;dragOrigPts=null});
 
 cv.addEventListener('contextmenu',e=>{
+  if(!connected)return;
   e.preventDefault();
   const rect=cv.getBoundingClientRect();
   const mx=(e.clientX-rect.left)*devicePixelRatio;
@@ -329,11 +357,13 @@ cv.addEventListener('contextmenu',e=>{
 
 // Touch support
 cv.addEventListener('touchstart',e=>{
+  if(!connected)return;
   e.preventDefault();
   const t=e.touches[0];
   cv.dispatchEvent(new MouseEvent('mousedown',{clientX:t.clientX,clientY:t.clientY,button:0}));
 },{passive:false});
 cv.addEventListener('touchmove',e=>{
+  if(!connected)return;
   e.preventDefault();
   const t=e.touches[0];
   cv.dispatchEvent(new MouseEvent('mousemove',{clientX:t.clientX,clientY:t.clientY}));
@@ -354,6 +384,10 @@ async function apiPatch(path,payload){
 }
 let saving=false;
 async function flushPrefs(){await fetch(BASE+'/api/v1/save',{method:'POST',...FETCH_OPTS})}
+function setRebootRequired(required){
+  rebootRequired=required===true;
+  document.getElementById('rebootNotice').classList.toggle('show',rebootRequired);
+}
 
 async function loadAll(){
   const cfg=await apiGet('/api/v1/ld2450/config');
@@ -372,10 +406,22 @@ async function loadAll(){
   const btOn=cfg.bluetooth===true;
   document.getElementById('btToggle').checked=btOn;
   document.getElementById('btLabel').textContent=btOn?'ON':'OFF';
+  setRebootRequired(cfg.reboot_required===true);
   draw();
 }
 
+async function requestReboot(){
+  if(!connected)return;
+  document.getElementById('rebootNotice').classList.remove('show');
+  const status=document.getElementById('statusDot');
+  status.classList.remove('ok');
+  connected=false;
+  setUiEnabled(false);
+  await fetch(BASE+'/api/v1/reboot',{method:'POST',...FETCH_OPTS});
+}
+
 async function saveZone(z){
+  if(!connected)return;
   if(z<3){
     const zonesPayload=[zones[0],zones[1],zones[2]].map(arr=>arr.map(p=>({x:Math.round(p.x),y:Math.round(p.y)})));
     await apiPatch('/api/v1/ld2450/config',{zones:zonesPayload});
@@ -387,25 +433,32 @@ async function saveZone(z){
 
 async function saveCurrentZone(){saving=true;try{await saveZone(activeZone);await flushPrefs()}finally{saving=false}}
 async function saveAllZones(){saving=true;try{for(let z=0;z<ZONES;z++)await saveZone(z);await flushPrefs()}finally{saving=false}}
-function clearCurrentZone(){zones[activeZone]=[];draw()}
+function clearCurrentZone(){if(!connected)return;zones[activeZone]=[];draw()}
 async function saveRange(){
+  if(!connected)return;
   const v=parseInt(document.getElementById('rangeInput').value)||0;
   detRange=v;await apiPatch('/api/v1/ld2450/config',{detection_range:v});await flushPrefs();draw();
 }
 async function saveTimeout(){
+  if(!connected)return;
   const v=parseInt(document.getElementById('timeoutInput').value)||0;
   timeout=v;await apiPatch('/api/v1/ld2450/config',{timeout:v});await flushPrefs();
 }
 async function saveStability(){
+  if(!connected)return;
   const v=parseInt(document.getElementById('stabilitySlider').value)||0;
   await apiPatch('/api/v1/ld2450/config',{stability:v});await flushPrefs();
 }
 async function saveMultiTarget(){
+  if(!connected)return;
   const on=document.getElementById('multiTargetToggle').checked;
   document.getElementById('multiTargetLabel').textContent=on?'ON':'OFF';
-  await apiPatch('/api/v1/ld2450/config',{multi_target:on});
+  const res=await apiPatch('/api/v1/ld2450/config',{multi_target:on});
+  await flushPrefs();
+  setRebootRequired(res.reboot_required===true);
 }
 async function saveBluetooth(){
+  if(!connected)return;
   const on=document.getElementById('btToggle').checked;
   document.getElementById('btLabel').textContent=on?'ON':'OFF';
   await apiPatch('/api/v1/ld2450/config',{bluetooth:on});
@@ -427,12 +480,15 @@ async function pollTargets(){
     if(!connected){
       connected=true;
       document.getElementById('statusDot').classList.add('ok');
+      setUiEnabled(true);
+      try{await loadAll()}catch(_e){}
     }
     draw();
   }catch(e){
     if(connected){
       connected=false;
       document.getElementById('statusDot').classList.remove('ok');
+      setUiEnabled(false);
     }
   }
 }
@@ -442,8 +498,10 @@ async function init(){
     await loadAll();
     connected=true;
     document.getElementById('statusDot').classList.add('ok');
+    setUiEnabled(true);
   }catch(e){
     connected=false;
+    setUiEnabled(false);
   }
   pollTimer=setInterval(pollTargets,500);
 }
