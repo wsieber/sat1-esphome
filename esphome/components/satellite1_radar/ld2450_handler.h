@@ -137,6 +137,7 @@ class LD2450Handler {
   uint32_t ack_timeout_count_{0};
   uint32_t ack_failure_count_{0};
   uint16_t last_failed_cmd_{0};
+  bool config_session_open_{false};
 
   // Debounce state for aggregate count sensors
   int pub_total_count_{-1}, cand_total_count_{-1}, streak_total_{0};

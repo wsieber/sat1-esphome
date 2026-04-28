@@ -671,6 +671,7 @@ void LD2450Handler::step_command_tx_() {
     case TxState::WAIT_ENABLE_ACK:
       if (consume_tx_ack_(tx_expected_ack_cmd_, ack_status)) {
         if (ack_status == 0) {
+          config_session_open_ = true;
           send_active_command_();
           return;
         }
@@ -679,6 +680,11 @@ void LD2450Handler::step_command_tx_() {
           ESP_LOGW(TAG_LD2450, "Enable config ACK failed (status=%u), retry %u/%u", ack_status, tx_retry_count_,
                    COMMAND_MAX_RETRIES);
           send_enable_config_();
+          return;
+        }
+        if (config_session_open_) {
+          drop_active_after_disable_ = true;
+          send_disable_config_();
           return;
         }
         drop_active_command_("enable config ack failure");
@@ -690,6 +696,11 @@ void LD2450Handler::step_command_tx_() {
           tx_retry_count_++;
           ESP_LOGW(TAG_LD2450, "Enable config ACK timeout, retry %u/%u", tx_retry_count_, COMMAND_MAX_RETRIES);
           send_enable_config_();
+          return;
+        }
+        if (config_session_open_) {
+          drop_active_after_disable_ = true;
+          send_disable_config_();
           return;
         }
         drop_active_command_("enable config ack timeout");
@@ -709,8 +720,12 @@ void LD2450Handler::step_command_tx_() {
           send_enable_config_();
           return;
         }
-        drop_active_after_disable_ = true;
-        send_disable_config_();
+        if (config_session_open_) {
+          drop_active_after_disable_ = true;
+          send_disable_config_();
+          return;
+        }
+        drop_active_command_("command ack retries exhausted");
         return;
       }
       if (deadline_passed_(tx_deadline_ms_, now)) {
@@ -722,8 +737,12 @@ void LD2450Handler::step_command_tx_() {
           send_enable_config_();
           return;
         }
-        drop_active_after_disable_ = true;
-        send_disable_config_();
+        if (config_session_open_) {
+          drop_active_after_disable_ = true;
+          send_disable_config_();
+          return;
+        }
+        drop_active_command_("command ack timeout");
       }
       return;
 
@@ -731,6 +750,7 @@ void LD2450Handler::step_command_tx_() {
       if (consume_tx_ack_(tx_expected_ack_cmd_, ack_status)) {
         if (ack_status != 0)
           ESP_LOGW(TAG_LD2450, "Disable config ACK failed (status=%u)", ack_status);
+        config_session_open_ = false;
         if (drop_active_after_disable_) {
           drop_active_command_("command ack retries exhausted");
           return;
@@ -744,6 +764,7 @@ void LD2450Handler::step_command_tx_() {
       if (deadline_passed_(tx_deadline_ms_, now)) {
         ack_timeout_count_++;
         ESP_LOGW(TAG_LD2450, "Disable config ACK timeout");
+        config_session_open_ = false;
         if (drop_active_after_disable_) {
           drop_active_command_("disable config ack timeout after command failure");
           return;
