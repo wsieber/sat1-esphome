@@ -281,12 +281,12 @@ esp_err_t RadarTunerServer::handle_ld2450_get_config_(httpd_req_t *req) {
   const auto &cfg = self->ld2450_->get_backend_config();
   char buf[3072];
   int pos = 0;
-  pos += snprintf(
-      buf + pos, sizeof(buf) - pos,
-      "{\"detection_range\":%u,\"stability\":%u,\"timeout\":%u,\"bluetooth\":%s,\"multi_target\":%s,\"reboot_required\":%s,\"zones\":[",
-      static_cast<unsigned int>(cfg.detection_range_cm), static_cast<unsigned int>(cfg.stability),
-      static_cast<unsigned int>(cfg.timeout_seconds), cfg.bluetooth_enabled ? "true" : "false",
-      cfg.multi_target_enabled ? "true" : "false", self->ld2450_->is_reboot_required() ? "true" : "false");
+  pos += snprintf(buf + pos, sizeof(buf) - pos,
+                  "{\"detection_range\":%u,\"stability\":%u,\"timeout\":%u,\"bluetooth\":%s,\"multi_target\":%s,"
+                  "\"reboot_required\":%s,\"zones\":[",
+                  static_cast<unsigned int>(cfg.detection_range_cm), static_cast<unsigned int>(cfg.stability),
+                  static_cast<unsigned int>(cfg.timeout_seconds), cfg.bluetooth_enabled ? "true" : "false",
+                  cfg.multi_target_enabled ? "true" : "false", self->ld2450_->is_reboot_required() ? "true" : "false");
 
   for (size_t z = 0; z < LD2450Handler::NUM_ZONES; z++) {
     pos += snprintf(buf + pos, sizeof(buf) - pos, "%s[", z ? "," : "");
@@ -427,7 +427,7 @@ esp_err_t RadarTunerServer::handle_ld2450_patch_config_(httpd_req_t *req) {
     return ESP_FAIL;
   }
   return send_json_ok_(req, self->ld2450_->is_reboot_required() ? "{\"status\":\"ok\",\"reboot_required\":true}"
-                                                                  : "{\"status\":\"ok\",\"reboot_required\":false}");
+                                                                : "{\"status\":\"ok\",\"reboot_required\":false}");
 }
 
 esp_err_t RadarTunerServer::handle_ld2450_live_(httpd_req_t *req) {
