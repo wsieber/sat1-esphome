@@ -76,8 +76,8 @@ void LD2450Handler::create_and_register_entities() {
 
     if (this->still_target_count == nullptr) {
       this->runtime_still_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
-      this->runtime_still_target_count_sensor_->configure_dynamic("Radar Targets Still", ENTITY_CATEGORY_NONE, false,
-                                                                  0, 0, this->icon_meta_.account, true,
+      this->runtime_still_target_count_sensor_->configure_dynamic("Radar Targets Still", ENTITY_CATEGORY_NONE, false, 0,
+                                                                  0, this->icon_meta_.account, true,
                                                                   sensor::STATE_CLASS_MEASUREMENT, 0);
       App.register_sensor(this->runtime_still_target_count_sensor_.get());
       this->still_target_count = this->runtime_still_target_count_sensor_.get();
@@ -386,10 +386,10 @@ void LD2450Handler::parse_data_frame_(const uint8_t *buf) {
 
   debounce_binary_(pub_presence_, cand_presence_, streak_presence_, any_target, threshold, presence_sensor);
 
-  const char *target_state = any_approaching ? "Approaching"
+  const char *target_state = any_approaching   ? "Approaching"
                              : any_moving_away ? "Moving Away"
-                             : any_still ? "Still"
-                                         : "Clear";
+                             : any_still       ? "Still"
+                                               : "Clear";
   debounce_target_state_(target_state, threshold);
 
   update_zone_states_(threshold);
