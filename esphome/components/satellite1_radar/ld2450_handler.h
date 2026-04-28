@@ -81,6 +81,7 @@ class LD2450Handler {
   void turn_bluetooth_off();
 
   const LD2450BackendConfig &get_backend_config() const { return config_; }
+  bool is_reboot_required() const { return reboot_required_; }
   bool set_backend_config(const LD2450BackendConfig &cfg);
   void set_bluetooth_enabled(bool enabled);
   void set_multi_target_enabled(bool enabled);
@@ -190,9 +191,13 @@ class LD2450Handler {
   static void publish_sensor_(sensor::Sensor *s, float val);
 
   bool validate_backend_config_(LD2450BackendConfig &cfg) const;
+  bool entity_layout_matches_(const LD2450BackendConfig &lhs, const LD2450BackendConfig &rhs) const;
   void save_backend_config_();
 
   LD2450BackendConfig config_{};
+  LD2450BackendConfig boot_config_{};
+  bool boot_config_initialized_{false};
+  bool reboot_required_{false};
   ESPPreferenceObject config_pref_;
   float target_x_cm_[NUM_TARGETS]{};
   float target_y_cm_[NUM_TARGETS]{};

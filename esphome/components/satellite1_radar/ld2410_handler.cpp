@@ -308,7 +308,10 @@ bool LD2410Handler::validate_backend_config_(LD2410BackendConfig &cfg) const {
   return true;
 }
 
-void LD2410Handler::save_backend_config_() { config_pref_.save(&config_); }
+void LD2410Handler::save_backend_config_() {
+  config_pref_.save(&config_);
+  global_preferences->sync();
+}
 
 bool LD2410Handler::set_backend_config(const LD2410BackendConfig &cfg) {
   LD2410BackendConfig candidate = cfg;

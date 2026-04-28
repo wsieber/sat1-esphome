@@ -55,6 +55,7 @@ class RadarTunerServer {
   static esp_err_t handle_ld2450_patch_config_(httpd_req_t *req);
   static esp_err_t handle_ld2450_live_(httpd_req_t *req);
   static esp_err_t handle_save_(httpd_req_t *req);
+  static esp_err_t handle_reboot_(httpd_req_t *req);
 };
 
 }  // namespace satellite1_radar

@@ -175,8 +175,8 @@ void Satellite1Radar::finalize_detection_(RadarType type) {
     ld2450_->set_device_class_indices(this->device_class_meta_);
     ld2450_->set_unit_indices(this->unit_meta_);
     ld2450_->set_icon_indices(this->icon_meta_);
-    ld2450_->create_and_register_entities();
     ld2450_->setup();
+    ld2450_->create_and_register_entities();
   }
 }
 

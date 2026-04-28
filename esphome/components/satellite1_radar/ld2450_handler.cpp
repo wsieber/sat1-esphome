@@ -34,6 +34,9 @@ void LD2450Handler::setup() {
   if (config_pref_.load(&loaded)) {
     this->set_backend_config(loaded);
   }
+  boot_config_ = config_;
+  boot_config_initialized_ = true;
+  reboot_required_ = false;
 }
 
 void LD2450Handler::create_and_register_entities() {
@@ -69,31 +72,33 @@ void LD2450Handler::create_and_register_entities() {
     this->version_text_sensor = this->runtime_radar_firmware_text_sensor_.get();
   }
 
-  if (this->target_count == nullptr) {
-    this->runtime_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
-    this->runtime_target_count_sensor_->configure_dynamic("Radar Targets Total", ENTITY_CATEGORY_NONE, false, 0, 0,
-                                                          this->icon_meta_.account_multiple, true,
-                                                          sensor::STATE_CLASS_MEASUREMENT, 0);
-    App.register_sensor(this->runtime_target_count_sensor_.get());
-    this->target_count = this->runtime_target_count_sensor_.get();
-  }
+  if (config_.multi_target_enabled) {
+    if (this->target_count == nullptr) {
+      this->runtime_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
+      this->runtime_target_count_sensor_->configure_dynamic("Radar Targets Total", ENTITY_CATEGORY_NONE, false, 0, 0,
+                                                            this->icon_meta_.account_multiple, true,
+                                                            sensor::STATE_CLASS_MEASUREMENT, 0);
+      App.register_sensor(this->runtime_target_count_sensor_.get());
+      this->target_count = this->runtime_target_count_sensor_.get();
+    }
 
-  if (this->still_target_count == nullptr) {
-    this->runtime_still_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
-    this->runtime_still_target_count_sensor_->configure_dynamic("Radar Targets Still", ENTITY_CATEGORY_NONE, false, 0,
-                                                                0, this->icon_meta_.account, true,
-                                                                sensor::STATE_CLASS_MEASUREMENT, 0);
-    App.register_sensor(this->runtime_still_target_count_sensor_.get());
-    this->still_target_count = this->runtime_still_target_count_sensor_.get();
-  }
+    if (this->still_target_count == nullptr) {
+      this->runtime_still_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
+      this->runtime_still_target_count_sensor_->configure_dynamic("Radar Targets Still", ENTITY_CATEGORY_NONE, false,
+                                                                  0, 0, this->icon_meta_.account, true,
+                                                                  sensor::STATE_CLASS_MEASUREMENT, 0);
+      App.register_sensor(this->runtime_still_target_count_sensor_.get());
+      this->still_target_count = this->runtime_still_target_count_sensor_.get();
+    }
 
-  if (this->moving_target_count == nullptr) {
-    this->runtime_moving_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
-    this->runtime_moving_target_count_sensor_->configure_dynamic("Radar Targets Moving", ENTITY_CATEGORY_NONE, false, 0,
-                                                                 0, this->icon_meta_.account_arrow_right, true,
-                                                                 sensor::STATE_CLASS_MEASUREMENT, 0);
-    App.register_sensor(this->runtime_moving_target_count_sensor_.get());
-    this->moving_target_count = this->runtime_moving_target_count_sensor_.get();
+    if (this->moving_target_count == nullptr) {
+      this->runtime_moving_target_count_sensor_.reset(new Satellite1RadarDynamicSensor());
+      this->runtime_moving_target_count_sensor_->configure_dynamic("Radar Targets Moving", ENTITY_CATEGORY_NONE, false,
+                                                                   0, 0, this->icon_meta_.account_arrow_right, true,
+                                                                   sensor::STATE_CLASS_MEASUREMENT, 0);
+      App.register_sensor(this->runtime_moving_target_count_sensor_.get());
+      this->moving_target_count = this->runtime_moving_target_count_sensor_.get();
+    }
   }
 
   for (size_t i = 0; i < NUM_ZONES; i++) {
@@ -253,7 +258,10 @@ bool LD2450Handler::validate_backend_config_(LD2450BackendConfig &cfg) const {
   return true;
 }
 
-void LD2450Handler::save_backend_config_() { config_pref_.save(&config_); }
+void LD2450Handler::save_backend_config_() {
+  config_pref_.save(&config_);
+  global_preferences->sync();
+}
 
 bool LD2450Handler::set_backend_config(const LD2450BackendConfig &cfg) {
   LD2450BackendConfig candidate = cfg;
@@ -265,6 +273,8 @@ bool LD2450Handler::set_backend_config(const LD2450BackendConfig &cfg) {
 
   config_ = candidate;
   save_backend_config_();
+  if (boot_config_initialized_)
+    reboot_required_ = !entity_layout_matches_(config_, boot_config_);
 
   if (bluetooth_changed) {
     if (config_.bluetooth_enabled)
@@ -280,6 +290,10 @@ bool LD2450Handler::set_backend_config(const LD2450BackendConfig &cfg) {
   }
 
   return true;
+}
+
+bool LD2450Handler::entity_layout_matches_(const LD2450BackendConfig &lhs, const LD2450BackendConfig &rhs) const {
+  return lhs.multi_target_enabled == rhs.multi_target_enabled;
 }
 
 void LD2450Handler::set_bluetooth_enabled(bool enabled) {

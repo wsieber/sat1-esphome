@@ -1,4 +1,5 @@
 #include "radar_tuner_server.h"
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include "esphome/core/preferences.h"
 #include <cJSON.h>
@@ -282,10 +283,10 @@ esp_err_t RadarTunerServer::handle_ld2450_get_config_(httpd_req_t *req) {
   int pos = 0;
   pos += snprintf(
       buf + pos, sizeof(buf) - pos,
-      "{\"detection_range\":%u,\"stability\":%u,\"timeout\":%u,\"bluetooth\":%s,\"multi_target\":%s,\"zones\":[",
+      "{\"detection_range\":%u,\"stability\":%u,\"timeout\":%u,\"bluetooth\":%s,\"multi_target\":%s,\"reboot_required\":%s,\"zones\":[",
       static_cast<unsigned int>(cfg.detection_range_cm), static_cast<unsigned int>(cfg.stability),
       static_cast<unsigned int>(cfg.timeout_seconds), cfg.bluetooth_enabled ? "true" : "false",
-      cfg.multi_target_enabled ? "true" : "false");
+      cfg.multi_target_enabled ? "true" : "false", self->ld2450_->is_reboot_required() ? "true" : "false");
 
   for (size_t z = 0; z < LD2450Handler::NUM_ZONES; z++) {
     pos += snprintf(buf + pos, sizeof(buf) - pos, "%s[", z ? "," : "");
@@ -425,7 +426,8 @@ esp_err_t RadarTunerServer::handle_ld2450_patch_config_(httpd_req_t *req) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Config validation failed");
     return ESP_FAIL;
   }
-  return send_json_ok_(req, "{\"status\":\"ok\"}");
+  return send_json_ok_(req, self->ld2450_->is_reboot_required() ? "{\"status\":\"ok\",\"reboot_required\":true}"
+                                                                  : "{\"status\":\"ok\",\"reboot_required\":false}");
 }
 
 esp_err_t RadarTunerServer::handle_ld2450_live_(httpd_req_t *req) {
@@ -445,6 +447,14 @@ esp_err_t RadarTunerServer::handle_save_(httpd_req_t *req) {
   global_preferences->sync();
   ESP_LOGI(TAG_RT, "Preferences flushed to NVS");
   return send_json_ok_(req, "{\"status\":\"ok\"}");
+}
+
+esp_err_t RadarTunerServer::handle_reboot_(httpd_req_t *req) {
+  global_preferences->sync();
+  ESP_LOGI(TAG_RT, "Reboot requested by tuner UI");
+  send_json_ok_(req, "{\"status\":\"ok\"}");
+  App.safe_reboot();
+  return ESP_OK;
 }
 
 void RadarTunerServer::start() {
@@ -529,6 +539,13 @@ void RadarTunerServer::start() {
   save.handler = handle_save_;
   save.user_ctx = this;
   httpd_register_uri_handler(server_, &save);
+
+  httpd_uri_t reboot = {};
+  reboot.uri = "/api/v1/reboot";
+  reboot.method = HTTP_POST;
+  reboot.handler = handle_reboot_;
+  reboot.user_ctx = this;
+  httpd_register_uri_handler(server_, &reboot);
 
   ESP_LOGI(TAG_RT, "Radar tuner server started on port 80");
 }
