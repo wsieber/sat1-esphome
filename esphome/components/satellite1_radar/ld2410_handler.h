@@ -55,8 +55,10 @@ class LD2410Handler {
   void factory_reset();
   void restart();
   void query_params();
+  void query_mac_address();
   void write_gate_config();
   void set_distance_resolution(bool fine);
+  void set_bluetooth_enabled(bool enabled);
   void enable_engineering_mode();
   void disable_engineering_mode();
 
@@ -83,6 +85,9 @@ class LD2410Handler {
   size_t cmd_queue_count_{0};
   bool waiting_for_ack_{false};
   uint32_t ack_wait_start_{0};
+  bool bt_readback_pending_{false};
+  uint32_t bt_readback_due_ms_{0};
+  static const uint32_t BT_READBACK_DELAY_MS = 1500;
   static const uint32_t ACK_TIMEOUT_MS = 1000;
 
   static uint16_t to_uint16_(uint8_t lo, uint8_t hi);

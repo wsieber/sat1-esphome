@@ -12,6 +12,7 @@ namespace satellite1_radar {
 
 static const char *const TAG_LD2410 = "satellite1_radar.ld2410";
 static constexpr size_t MAX_UART_BYTES_PER_LOOP = 128;
+static constexpr uint8_t LD2410_NO_BT_MAC[6] = {0x08, 0x05, 0x04, 0x03, 0x02, 0x01};
 
 void LD2410Handler::setup() {
   ESP_LOGI(TAG_LD2410, "Initializing LD2410 handler");
@@ -200,6 +201,12 @@ void LD2410Handler::loop() {
   }
 
   process_queue_();
+
+  if (bt_readback_pending_ && static_cast<int32_t>(millis() - bt_readback_due_ms_) >= 0) {
+    bt_readback_pending_ = false;
+    this->query_params();
+    ESP_LOGI(TAG_LD2410, "Queued parameter readback after Bluetooth restart");
+  }
 }
 
 void LD2410Handler::factory_reset() {
@@ -219,10 +226,20 @@ void LD2410Handler::restart() {
 void LD2410Handler::query_params() {
   queue_enter_config_();
   queue_config_command_(0x00A0, nullptr, 0);
+  uint8_t mac_query_data[2] = {0x01, 0x00};
+  queue_config_command_(0x00A5, mac_query_data, 2);
   queue_config_command_(0x0061, nullptr, 0);
   queue_config_command_(0x00AB, nullptr, 0);
   queue_exit_config_();
   ESP_LOGI(TAG_LD2410, "Parameter query queued");
+}
+
+void LD2410Handler::query_mac_address() {
+  queue_enter_config_();
+  uint8_t data[2] = {0x01, 0x00};
+  queue_config_command_(0x00A5, data, 2);
+  queue_exit_config_();
+  ESP_LOGI(TAG_LD2410, "MAC query queued");
 }
 
 void LD2410Handler::write_gate_config() {
@@ -269,6 +286,16 @@ void LD2410Handler::set_distance_resolution(bool fine) {
   ESP_LOGI(TAG_LD2410, "Distance resolution change queued (%s)", fine ? "0.2m" : "0.75m");
 }
 
+void LD2410Handler::set_bluetooth_enabled(bool enabled) {
+  queue_enter_config_();
+  uint8_t data[2];
+  put_uint16_le_(data, enabled ? 0x0001 : 0x0000);
+  queue_config_command_(0x00A4, data, 2);
+  queue_config_command_(0x00A3, nullptr, 0);
+  queue_exit_config_();
+  ESP_LOGI(TAG_LD2410, "Bluetooth %s queued with restart", enabled ? "enable" : "disable");
+}
+
 bool LD2410Handler::validate_backend_config_(LD2410BackendConfig &cfg) const {
   if (cfg.max_move_gate > 8 || cfg.max_still_gate > 8)
     return false;
@@ -295,6 +322,7 @@ bool LD2410Handler::set_backend_config(const LD2410BackendConfig &cfg) {
 void LD2410Handler::apply_backend_config() {
   this->write_gate_config();
   this->set_distance_resolution(config_.distance_resolution == 1);
+  this->set_bluetooth_enabled(config_.bluetooth_enabled);
 }
 
 void LD2410Handler::enable_engineering_mode() {
@@ -528,6 +556,19 @@ void LD2410Handler::handle_ack_frame_(const uint8_t *buf, size_t len) {
     config_.distance_resolution = fine ? 1 : 0;
     save_backend_config_();
     ESP_LOGI(TAG_LD2410, "Distance resolution: %s", fine ? "0.2m" : "0.75m");
+  }
+
+  if (cmd_word == 0x01A5 && status == 0 && len >= 16) {
+    const bool has_bt_mac = memcmp(&buf[10], LD2410_NO_BT_MAC, sizeof(LD2410_NO_BT_MAC)) != 0;
+    config_.bluetooth_enabled = has_bt_mac;
+    save_backend_config_();
+    ESP_LOGI(TAG_LD2410, "Bluetooth state from MAC query: %s", has_bt_mac ? "enabled" : "disabled");
+  }
+
+  if (cmd_word == 0x01A4 && status == 0) {
+    bt_readback_pending_ = true;
+    bt_readback_due_ms_ = millis() + BT_READBACK_DELAY_MS;
+    ESP_LOGI(TAG_LD2410, "Bluetooth command acknowledged, scheduling readback");
   }
 
   on_ack_received_();
