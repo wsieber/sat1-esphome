@@ -217,12 +217,12 @@ void LD2450Handler::set_multi_target() {
 
 void LD2450Handler::turn_bluetooth_on() {
   static const uint8_t cmd[] = {0x04, 0x00, 0xA4, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01};
-  enqueue_with_retries_(cmd, sizeof(cmd), true);
+  enqueue_command_(cmd, sizeof(cmd));
 }
 
 void LD2450Handler::turn_bluetooth_off() {
   static const uint8_t cmd[] = {0x04, 0x00, 0xA4, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
-  enqueue_with_retries_(cmd, sizeof(cmd), true);
+  enqueue_command_(cmd, sizeof(cmd));
 }
 
 bool LD2450Handler::validate_backend_config_(LD2450BackendConfig &cfg) const {
@@ -480,10 +480,7 @@ void LD2450Handler::handle_ack_frame_(const uint8_t *buf, size_t len) {
 
   if (cmd_word == 0x01A4 && status == 0) {
     ESP_LOGI(TAG_LD2450, "Bluetooth %s command acknowledged", config_.bluetooth_enabled ? "enable" : "disable");
-    if (bt_sync_requested_) {
-      bt_sync_requested_ = false;
-      schedule_post_bluetooth_sync_();
-    }
+    schedule_post_bluetooth_sync_();
   }
 }
 
@@ -538,12 +535,6 @@ void LD2450Handler::schedule_post_bluetooth_sync_() {
   ESP_LOGI(TAG_LD2450, "Scheduled restart/readback for Bluetooth %s", config_.bluetooth_enabled ? "enable" : "disable");
 }
 
-void LD2450Handler::enqueue_with_retries_(const uint8_t *cmd, size_t len, bool schedule_bt_sync) {
-  if (schedule_bt_sync)
-    bt_sync_requested_ = true;
-  enqueue_command_(cmd, len);
-}
-
 void LD2450Handler::mark_tx_ack_(uint16_t cmd_word, uint8_t status) {
   tx_ack_cmd_ = cmd_word;
   tx_ack_status_ = status;
@@ -581,10 +572,6 @@ uint16_t LD2450Handler::command_word_(const QueuedCommand &queued) const {
 
 void LD2450Handler::drop_active_command_(const char *reason) {
   const uint16_t cmd_word = command_word_(active_command_);
-  if (cmd_word == 0x00A4 && bt_sync_requested_) {
-    bt_sync_requested_ = false;
-    ESP_LOGW(TAG_LD2450, "Bluetooth command dropped (%s), skipping restart/readback sync", reason);
-  }
   if (cmd_word != 0)
     mark_command_failed_(cmd_word, reason);
   has_active_command_ = false;

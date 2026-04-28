@@ -102,7 +102,6 @@ class LD2450Handler {
   uint32_t bt_restart_due_ms_{0};
   bool bt_readback_pending_{false};
   uint32_t bt_readback_due_ms_{0};
-  bool bt_sync_requested_{false};
   static const uint32_t BT_RESTART_DELAY_MS = 200;
   static const uint32_t BT_READBACK_DELAY_MS = 1500;
   static const uint32_t COMMAND_ACK_TIMEOUT_MS = 250;
@@ -170,7 +169,6 @@ class LD2450Handler {
   void restart_radar_();
   void request_full_status_();
   void schedule_post_bluetooth_sync_();
-  void enqueue_with_retries_(const uint8_t *cmd, size_t len, bool schedule_bt_sync);
   void mark_tx_ack_(uint16_t cmd_word, uint8_t status);
   bool consume_tx_ack_(uint16_t expected_cmd, uint8_t &status_out);
   void mark_command_failed_(uint16_t cmd_word, const char *reason);
