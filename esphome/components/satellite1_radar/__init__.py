@@ -92,6 +92,11 @@ async def to_code(config):
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
+    # Expose lightweight tuner HTTP endpoint to Home Assistant device info
+    # so HA can show the Web UI link without enabling full web_server component.
+    cg.add_define("USE_WEBSERVER")
+    cg.add_define("USE_WEBSERVER_PORT", 80)
+
     cg.add(
         var.set_device_class_indices(
             device_class_indices["distance"],
