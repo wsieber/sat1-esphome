@@ -75,7 +75,10 @@ class Satellite1Radar : public Component, public uart::UARTDevice {
   RadarType detected_type_{RadarType::UNKNOWN};
   bool detection_started_{false};
   bool detection_complete_{false};
+  bool pre_detect_recovery_pending_{false};
+  uint32_t pre_detect_recovery_sent_ms_{0};
   uint32_t detect_start_ms_{0};
+  static const uint32_t PRE_DETECT_RECOVERY_SETTLE_MS = 20;
   uint8_t detect_ring_buf_[4]{};
   size_t detect_ring_pos_{0};
   DeviceClassMeta device_class_meta_{};

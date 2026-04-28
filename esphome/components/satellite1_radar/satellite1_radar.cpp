@@ -13,6 +13,7 @@ static constexpr size_t MAX_DETECT_DRAIN_BYTES = 256;
 
 static const uint8_t LD2410_FRAME_HEADER[] = {0xF4, 0xF3, 0xF2, 0xF1};
 static const uint8_t LD2450_FRAME_HEADER[] = {0xAA, 0xFF, 0x03, 0x00};
+static const uint8_t LD24XX_DISABLE_CONFIG[] = {0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00, 0xFE, 0x00, 0x04, 0x03, 0x02, 0x01};
 
 static void drain_uart_bytes_(uart::UARTDevice *uart, size_t max_bytes) {
   size_t drained = 0;
@@ -27,6 +28,8 @@ void Satellite1Radar::setup() {
   ESP_LOGI(TAG, "Starting mmWave radar auto-detection (%.1fs timeout)...", DETECT_TIMEOUT_MS / 1000.0f);
   if (this->radar_type_text_sensor_ != nullptr)
     this->radar_type_text_sensor_->publish_state("UNKNOWN");
+  this->pre_detect_recovery_pending_ = true;
+  this->pre_detect_recovery_sent_ms_ = 0;
   this->detection_started_ = true;
   this->detection_complete_ = false;
   this->detected_type_ = RadarType::UNKNOWN;
@@ -55,6 +58,24 @@ void Satellite1Radar::loop() {
 void Satellite1Radar::process_detection_() {
   if (!this->detection_started_ || this->detection_complete_) {
     return;
+  }
+
+  if (this->pre_detect_recovery_pending_) {
+    if (this->pre_detect_recovery_sent_ms_ == 0) {
+      drain_uart_bytes_(this, MAX_DETECT_DRAIN_BYTES);
+      this->write_array(LD24XX_DISABLE_CONFIG, sizeof(LD24XX_DISABLE_CONFIG));
+      this->flush();
+      this->pre_detect_recovery_sent_ms_ = millis();
+      ESP_LOGD(TAG, "Sent pre-detect disable-config recovery frame");
+      return;
+    }
+
+    if (millis() - this->pre_detect_recovery_sent_ms_ < PRE_DETECT_RECOVERY_SETTLE_MS) {
+      return;
+    }
+
+    drain_uart_bytes_(this, MAX_DETECT_DRAIN_BYTES);
+    this->pre_detect_recovery_pending_ = false;
   }
 
   size_t bytes_processed = 0;
