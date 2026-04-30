@@ -1,6 +1,6 @@
 #include "speaker_media_player.h"
 
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
 
 #include "esphome/core/log.h"
 
@@ -57,40 +57,27 @@ static const float FIRST_BOOT_DEFAULT_VOLUME = 0.5f;
 static const char *const TAG = "speaker_media_player";
 
 void SpeakerMediaPlayer::setup() {
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+  state = media_player::MEDIA_PLAYER_STATE_OFF;
+#else
   state = media_player::MEDIA_PLAYER_STATE_IDLE;
+#endif
 
   this->media_control_command_queue_ = xQueueCreate(MEDIA_CONTROLS_QUEUE_LENGTH, sizeof(MediaCallCommand));
 
   this->pref_ = global_preferences->make_preference<VolumeRestoreState>(this->get_object_id_hash());
 
-  VolumeRestoreState volume_restore_state;
-  if (this->pref_.load(&volume_restore_state)) {
-    this->set_volume_(volume_restore_state.volume);
-    this->set_mute_state_(volume_restore_state.is_muted);
-  } else {
-    this->set_volume_(FIRST_BOOT_DEFAULT_VOLUME);
-    this->set_mute_state_(false);
-  }
+  // VolumeRestoreState volume_restore_state;
+  // if (this->pref_.load(&volume_restore_state)) {
+  //   this->set_volume_(volume_restore_state.volume);
+  //   this->set_mute_state_(volume_restore_state.is_muted);
+  // } else {
+  //   this->set_volume_(FIRST_BOOT_DEFAULT_VOLUME);
+  //   this->set_mute_state_(false);
+  // }
 
-#ifdef USE_OTA
-  ota::get_global_ota_callback()->add_on_state_callback(
-      [this](ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
-        if (state == ota::OTA_STARTED) {
-          if (this->media_pipeline_ != nullptr) {
-            this->media_pipeline_->suspend_tasks();
-          }
-          if (this->announcement_pipeline_ != nullptr) {
-            this->announcement_pipeline_->suspend_tasks();
-          }
-        } else if (state == ota::OTA_ERROR) {
-          if (this->media_pipeline_ != nullptr) {
-            this->media_pipeline_->resume_tasks();
-          }
-          if (this->announcement_pipeline_ != nullptr) {
-            this->announcement_pipeline_->resume_tasks();
-          }
-        }
-      });
+#ifdef USE_OTA_STATE_LISTENER
+  ota::get_global_ota_callback()->add_global_state_listener(this);
 #endif
 
   this->announcement_pipeline_ =
@@ -111,8 +98,8 @@ void SpeakerMediaPlayer::setup() {
       this->mark_failed();
     }
   }
-#if USE_SNAPCAST    
-  if( this->snapcast_client_ != nullptr ){
+#if USE_SNAPCAST
+  if (this->snapcast_client_ != nullptr) {
     this->snapcast_client_->set_media_player(this);
   }
 #endif
@@ -130,6 +117,20 @@ void SpeakerMediaPlayer::set_playlist_delay_ms(AudioPipelineType pipeline_type, 
   }
 }
 
+void SpeakerMediaPlayer::stop_and_unpause_media_() {
+  this->media_pipeline_->stop();
+  this->unpause_media_remaining_ = 3;
+  this->set_interval("unpause_med", 50, [this]() {
+    if (this->media_pipeline_state_ == AudioPipelineState::STOPPED) {
+      this->cancel_interval("unpause_med");
+      this->media_pipeline_->set_pause_state(false);
+      this->is_paused_ = false;
+    } else if (--this->unpause_media_remaining_ == 0) {
+      this->cancel_interval("unpause_med");
+    }
+  });
+}
+
 void SpeakerMediaPlayer::watch_media_commands_() {
   if (!this->is_ready()) {
     return;
@@ -141,6 +142,12 @@ void SpeakerMediaPlayer::watch_media_commands_() {
     bool enqueue = media_command.enqueue.has_value() && media_command.enqueue.value();
 
     if (media_command.url.has_value() || media_command.file.has_value()) {
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+      if (this->state == media_player::MEDIA_PLAYER_STATE_OFF) {
+        this->state = media_player::MEDIA_PLAYER_STATE_ON;
+        publish_state();
+      }
+#endif
       PlaylistItem playlist_item;
       if (media_command.url.has_value()) {
         playlist_item.url = *media_command.url.value();
@@ -167,16 +174,9 @@ void SpeakerMediaPlayer::watch_media_commands_() {
           if (this->is_paused_) {
             // If paused, stop the media pipeline and unpause it after confirming its stopped. This avoids playing a
             // short segment of the paused file before starting the new one.
-            this->media_pipeline_->stop();
-            this->set_retry("unpause_med", 50, 3, [this](const uint8_t remaining_attempts) {
-              if (this->media_pipeline_state_ == AudioPipelineState::STOPPED) {
-                this->media_pipeline_->set_pause_state(false);
-                this->is_paused_ = false;
-                return RetryResult::DONE;
-              }
-              return RetryResult::RETRY;
-            });
-          } 
+            this->stop_and_unpause_media_();
+          }
+          // TODO: do we still need this extra stop?
           this->media_pipeline_->stop();
         }
         this->media_playlist_.push_back(playlist_item);
@@ -192,41 +192,57 @@ void SpeakerMediaPlayer::watch_media_commands_() {
     if (media_command.command.has_value()) {
       switch (media_command.command.value()) {
         case media_player::MEDIA_PLAYER_COMMAND_PLAY:
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+          if (this->state == media_player::MEDIA_PLAYER_STATE_OFF) {
+            this->state = media_player::MEDIA_PLAYER_STATE_ON;
+            publish_state();
+          }
+#endif
           if ((this->media_pipeline_ != nullptr) && (this->is_paused_)) {
             this->media_pipeline_->set_pause_state(false);
           }
           this->is_paused_ = false;
           break;
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+        case media_player::MEDIA_PLAYER_COMMAND_TURN_ON:
+          if (this->state == media_player::MEDIA_PLAYER_STATE_OFF) {
+            this->state = media_player::MEDIA_PLAYER_STATE_ON;
+            this->publish_state();
+          }
+          break;
+        case media_player::MEDIA_PLAYER_COMMAND_TURN_OFF:
+          this->is_turn_off_ = true;
+          // Intentional Fall-through
+#endif
         case media_player::MEDIA_PLAYER_COMMAND_PAUSE:
         case media_player::MEDIA_PLAYER_COMMAND_STOP:
           // Pipelines do not stop immediately after calling the stop command, so confirm its stopped before unpausing.
           // This avoids an audible short segment playing after receiving the stop command in a paused state.
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+          if (this->single_pipeline_() || (media_command.announce.has_value() && media_command.announce.value()) ||
+              (this->is_turn_off_ && this->announcement_pipeline_state_ != AudioPipelineState::STOPPED)) {
+#else
           if (this->single_pipeline_() || (media_command.announce.has_value() && media_command.announce.value())) {
+#endif
             if (this->announcement_pipeline_ != nullptr) {
               this->cancel_timeout("next_ann");
               this->announcement_playlist_.clear();
               this->announcement_pipeline_->stop();
-              this->set_retry("unpause_ann", 50, 3, [this](const uint8_t remaining_attempts) {
+              this->unpause_announcement_remaining_ = 3;
+              this->set_interval("unpause_ann", 50, [this]() {
                 if (this->announcement_pipeline_state_ == AudioPipelineState::STOPPED) {
+                  this->cancel_interval("unpause_ann");
                   this->announcement_pipeline_->set_pause_state(false);
-                  return RetryResult::DONE;
+                } else if (--this->unpause_announcement_remaining_ == 0) {
+                  this->cancel_interval("unpause_ann");
                 }
-                return RetryResult::RETRY;
               });
             }
           } else {
             if (this->media_pipeline_ != nullptr) {
               this->cancel_timeout("next_media");
               this->media_playlist_.clear();
-              this->media_pipeline_->stop();
-              this->set_retry("unpause_med", 50, 3, [this](const uint8_t remaining_attempts) {
-                if (this->media_pipeline_state_ == AudioPipelineState::STOPPED) {
-                  this->media_pipeline_->set_pause_state(false);
-                  this->is_paused_ = false;
-                  return RetryResult::DONE;
-                }
-                return RetryResult::RETRY;
-              });
+              this->stop_and_unpause_media_();
             }
           }
 
@@ -244,7 +260,6 @@ void SpeakerMediaPlayer::watch_media_commands_() {
           break;
         case media_player::MEDIA_PLAYER_COMMAND_MUTE: {
           this->set_mute_state_(true);
-
           this->publish_state();
           break;
         }
@@ -292,6 +307,27 @@ void SpeakerMediaPlayer::watch_media_commands_() {
   }
 }
 
+#ifdef USE_OTA_STATE_LISTENER
+void SpeakerMediaPlayer::on_ota_global_state(ota::OTAState state, float progress, uint8_t error,
+                                             ota::OTAComponent *comp) {
+  if (state == ota::OTA_STARTED) {
+    if (this->media_pipeline_ != nullptr) {
+      this->media_pipeline_->suspend_tasks();
+    }
+    if (this->announcement_pipeline_ != nullptr) {
+      this->announcement_pipeline_->suspend_tasks();
+    }
+  } else if (state == ota::OTA_ERROR) {
+    if (this->media_pipeline_ != nullptr) {
+      this->media_pipeline_->resume_tasks();
+    }
+    if (this->announcement_pipeline_ != nullptr) {
+      this->announcement_pipeline_->resume_tasks();
+    }
+  }
+}
+#endif
+
 void SpeakerMediaPlayer::loop() {
   this->watch_media_commands_();
 
@@ -321,107 +357,124 @@ void SpeakerMediaPlayer::loop() {
   }
 
   if (this->announcement_pipeline_state_ == AudioPipelineState::STOPPED) {
-    
     optional<PlaylistItem> next_item;
-    if( this->announcement_repeat_one_ && this->curr_announce_item_.has_value() ){
+    if (this->announcement_repeat_one_ && this->curr_announce_item_.has_value()) {
       // repeat current playing_item
       next_item = this->curr_announce_item_.value();
-    } else if (!this->announcement_playlist_.empty()){
+    } else if (!this->announcement_playlist_.empty()) {
       // play front of playlist next
       next_item = this->announcement_playlist_.front();
       this->announcement_playlist_.pop_front();
     }
-    
-    if(next_item.has_value()){
+
+    if (next_item.has_value()) {
       uint32_t timeout_ms = 0;
-      if( this->curr_announce_item_.has_value()){
+      if (this->curr_announce_item_.has_value()) {
         // Only delay starting playback if moving on the next playlist item or repeating the current item
         timeout_ms = this->announcement_playlist_delay_ms_;
       }
-      
+
       this->curr_announce_item_ = next_item.value();
-      if( next_item.value().url.has_value()){
+      if (next_item.value().url.has_value()) {
         {
           this->announcement_pipeline_->start_url(next_item.value().url.value());
         }
       } else if (next_item.value().file.has_value()) {
-          this->announcement_pipeline_->start_file(next_item.value().file.value());
+        this->announcement_pipeline_->start_file(next_item.value().file.value());
       }
       if (timeout_ms > 0) {
-          // Pause pipeline internally to facilitate the delay between items
-          this->announcement_pipeline_->set_pause_state(true);
-          // Internally unpause the pipeline after the delay between playlist items. Announcements do not follow the
-          // media player's pause state.
-          this->set_timeout("next_ann", timeout_ms, [this]() { this->announcement_pipeline_->set_pause_state(false); });
+        // Pause pipeline internally to facilitate the delay between items
+        this->announcement_pipeline_->set_pause_state(true);
+        // Internally unpause the pipeline after the delay between playlist items. Announcements do not follow the
+        // media player's pause state.
+        this->set_timeout("next_ann", timeout_ms, [this]() { this->announcement_pipeline_->set_pause_state(false); });
       }
       return;
     } else {
       this->curr_announce_item_.reset();
     }
-    
+
     // announcement is not running at this stage
     // only start new media track if no announcement is running
     // (otherwise MEDIA_PLAYER_STATE_ANNOUNCING get's overwritten and voice assistant can't detect end of announcement)
-    
+
     if (this->is_paused_) {
       this->state = media_player::MEDIA_PLAYER_STATE_PAUSED;
     } else if (this->media_pipeline_state_ == AudioPipelineState::PLAYING) {
       this->state = media_player::MEDIA_PLAYER_STATE_PLAYING;
     } else if (this->media_pipeline_state_ == AudioPipelineState::STOPPED) {
-      
       optional<PlaylistItem> next_item;
-      if( this->media_repeat_one_ && this->curr_media_item_.has_value() ){
+      if (this->media_repeat_one_ && this->curr_media_item_.has_value()) {
         // repeat current playing_item
         next_item = this->curr_media_item_.value();
-      } else if (!this->media_playlist_.empty()){
+      } else if (!this->media_playlist_.empty()) {
         // play front of playlist next
         next_item = this->media_playlist_.front();
         this->media_playlist_.pop_front();
       }
 
-      if(next_item.has_value()){
+      if (next_item.has_value()) {
         uint32_t timeout_ms = 0;
-        if( this->curr_media_item_.has_value()){
+        if (this->curr_media_item_.has_value()) {
           // Only delay starting playback if moving on the next playlist item or repeating the current item
-          timeout_ms = this->announcement_playlist_delay_ms_;
+          timeout_ms = this->media_playlist_delay_ms_;
         }
         this->curr_media_item_ = next_item.value();
-        if( next_item.value().url.has_value()){
-#if USE_SNAPCAST                
-          if( this->snapcast_client_ && this->snapcast_client_->is_snapcast_url(next_item.value().url.value())){
+        if (next_item.value().url.has_value()) {
+#if USE_SNAPCAST
+          if (this->snapcast_client_ && this->snapcast_client_->is_snapcast_url(next_item.value().url.value())) {
             this->snapcast_client_->connect_to_url(next_item.value().url.value());
-            this->media_pipeline_->start_snapcast( this->snapcast_client_->get_stream() );
-          } 
-          else 
-#endif               
+            this->media_pipeline_->start_snapcast(this->snapcast_client_);
+          } else
+#endif
           {
             this->media_pipeline_->start_url(next_item.value().url.value());
           }
         } else if (next_item.value().file.has_value()) {
-            this->media_pipeline_->start_file(next_item.value().file.value());
+          this->media_pipeline_->start_file(next_item.value().file.value());
         }
         if (timeout_ms > 0) {
-            // Pause pipeline internally to facilitate the delay between items
-            this->media_pipeline_->set_pause_state(true);
-            // Internally unpause the pipeline after the delay between playlist items, if the media player state is
-            // not paused.
-            this->set_timeout("next_media", timeout_ms,
-                              [this]() { this->media_pipeline_->set_pause_state(this->is_paused_); });
+          // Pause pipeline internally to facilitate the delay between items
+          this->media_pipeline_->set_pause_state(true);
+          // Internally unpause the pipeline after the delay between playlist items, if the media player state is
+          // not paused.
+          this->set_timeout("next_media", timeout_ms,
+                            [this]() { this->media_pipeline_->set_pause_state(this->is_paused_); });
         }
       } else {
         this->curr_media_item_.reset();
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+        if (this->state != media_player::MEDIA_PLAYER_STATE_OFF) {
+          this->state = media_player::MEDIA_PLAYER_STATE_IDLE;
+        }
+#else
         this->state = media_player::MEDIA_PLAYER_STATE_IDLE;
+#endif
       }
     }
-  
-  } else { // this->announcement_pipeline_state_ != AudioPipelineState::STOPPED
+
+  } else {  // this->announcement_pipeline_state_ != AudioPipelineState::STOPPED
     this->state = media_player::MEDIA_PLAYER_STATE_ANNOUNCING;
   }
-  
+
   if (this->state != old_state) {
     this->publish_state();
     ESP_LOGD(TAG, "State changed to %s", media_player::media_player_state_to_string(this->state));
   }
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+  if (this->is_turn_off_ && (this->state == media_player::MEDIA_PLAYER_STATE_PAUSED ||
+                             this->state == media_player::MEDIA_PLAYER_STATE_IDLE)) {
+    this->is_turn_off_ = false;
+    if (this->state == media_player::MEDIA_PLAYER_STATE_PAUSED) {
+      this->state = media_player::MEDIA_PLAYER_STATE_IDLE;
+      this->publish_state();
+      ESP_LOGD(TAG, "State changed to %s", media_player::media_player_state_to_string(this->state));
+    }
+    this->state = media_player::MEDIA_PLAYER_STATE_OFF;
+    this->publish_state();
+    ESP_LOGD(TAG, "State changed to %s", media_player::media_player_state_to_string(this->state));
+  }
+#endif
 }
 
 void SpeakerMediaPlayer::play_file(audio::AudioFile *media_file, bool announcement, bool enqueue) {
@@ -442,7 +495,7 @@ void SpeakerMediaPlayer::play_file(audio::AudioFile *media_file, bool announceme
   xQueueSend(this->media_control_command_queue_, &media_command, portMAX_DELAY);
 }
 
-#if USE_SNAPCAST  
+#if USE_SNAPCAST
 void SpeakerMediaPlayer::play_snapcast_stream(const std::string &server_uri) {
   if (!this->is_ready()) {
     // Ignore any commands sent before the media player is setup
@@ -450,10 +503,10 @@ void SpeakerMediaPlayer::play_snapcast_stream(const std::string &server_uri) {
   }
 
   MediaCallCommand media_command;
-  media_command.url = new std::string(server_uri); //will be deleted in watch_media_commands_()
+  media_command.url = new std::string(server_uri);  // will be deleted in watch_media_commands_()
   media_command.announce = false;
   media_command.enqueue = false;
-  xQueueSend(this->media_control_command_queue_, &media_command, portMAX_DELAY); 
+  xQueueSend(this->media_control_command_queue_, &media_command, portMAX_DELAY);
 }
 #endif
 
@@ -487,6 +540,9 @@ void SpeakerMediaPlayer::control(const media_player::MediaPlayerCall &call) {
 
   if (call.get_volume().has_value()) {
     media_command.volume = call.get_volume().value();
+    if (call.get_command().has_value()) {
+      media_command.command = call.get_command().value();
+    }
     // Wait 0 ticks for queue to be free, volume sets aren't that important!
     xQueueSend(this->media_control_command_queue_, &media_command, 0);
     return;
@@ -509,6 +565,9 @@ media_player::MediaPlayerTraits SpeakerMediaPlayer::get_traits() {
   if (!this->single_pipeline_()) {
     traits.set_supports_pause(true);
   }
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+  traits.set_supports_turn_off_on(true);
+#endif
 
   if (this->announcement_format_.has_value()) {
     traits.get_supported_formats().push_back(this->announcement_format_.value());
@@ -532,12 +591,14 @@ void SpeakerMediaPlayer::save_volume_restore_state_() {
   this->pref_.save(&volume_restore_state);
 }
 
-void SpeakerMediaPlayer::set_mute_state_(bool mute_state) {
-  if (this->media_speaker_ != nullptr) {
-    this->media_speaker_->set_mute_state(mute_state);
-  }
-  if (this->announcement_speaker_ != nullptr) {
-    this->announcement_speaker_->set_mute_state(mute_state);
+void SpeakerMediaPlayer::set_mute_state_(bool mute_state, bool restore_only) {
+  if (!restore_only) {
+    if (this->media_speaker_ != nullptr) {
+      this->media_speaker_->set_mute_state(mute_state);
+    }
+    if (this->announcement_speaker_ != nullptr) {
+      this->announcement_speaker_->set_mute_state(mute_state);
+    }
   }
 
   bool old_mute_state = this->is_muted_;
@@ -547,42 +608,65 @@ void SpeakerMediaPlayer::set_mute_state_(bool mute_state) {
 
   if (old_mute_state != mute_state) {
     if (mute_state) {
-      this->defer([this]() { this->mute_trigger_->trigger(); });
+      this->defer([this]() { this->mute_trigger_.trigger(); });
     } else {
-      this->defer([this]() { this->unmute_trigger_->trigger(); });
+      this->defer([this]() { this->unmute_trigger_.trigger(); });
     }
+#if USE_SNAPCAST
+    if (this->snapcast_client_) {
+      float report_volume = this->volume;
+      if (this->is_muted_ && this->volume < 0.01) {
+        report_volume = 0.01;
+      }
+      this->snapcast_client_->report_volume(report_volume, this->is_muted_);
+    }
+#endif
   }
 }
 
-void SpeakerMediaPlayer::set_volume_(float volume, bool publish) {
+void SpeakerMediaPlayer::set_volume_(float volume, bool publish, bool restore_only) {
   // Remap the volume to fit with in the configured limits
+  volume = clamp<float>(volume, 0.0, 1.0);
   float bounded_volume = remap<float, float>(volume, 0.0f, 1.0f, this->volume_min_, this->volume_max_);
 
-  if (this->media_speaker_ != nullptr) {
-    this->media_speaker_->set_volume(bounded_volume);
+  if (!restore_only) {
+    if (this->media_speaker_ != nullptr) {
+      this->media_speaker_->set_volume(bounded_volume);
+    }
+    if (this->announcement_speaker_ != nullptr) {
+      this->announcement_speaker_->set_volume(bounded_volume);
+    }
   }
 
-  if (this->announcement_speaker_ != nullptr) {
-    this->announcement_speaker_->set_volume(bounded_volume);
-  }
-
-  if (publish) {
+  if (volume < 0.001) {
+    this->volume = 0.001;
+  } else {
     this->volume = volume;
+  }
+
+  bool muted_changed = false;
+  // Turn on the mute state if the volume is effectively zero, off otherwise
+  if (volume < 0.001 && !this->is_muted_) {
+    this->set_mute_state_(true);
+    muted_changed = true;
+  } else if (this->is_muted_) {
+    this->set_mute_state_(false);
+    muted_changed = true;
+  }
+  if (publish) {
     this->save_volume_restore_state_();
   }
 
-  // Turn on the mute state if the volume is effectively zero, off otherwise
-  if (volume < 0.001) {
-    this->set_mute_state_(true);
-  } else {
-    this->set_mute_state_(false);
-  }
-#if USE_SNAPCAST    
-  if( this->snapcast_client_ ){
-    this->snapcast_client_->report_volume(volume, this->is_muted_);
+#if USE_SNAPCAST
+  if (this->snapcast_client_ && !muted_changed) {
+    float report_volume = this->volume;
+    if (this->is_muted_ && this->volume < 0.01) {
+      report_volume = 0.01;
+    }
+    this->snapcast_client_->report_volume(report_volume, this->is_muted_);
   }
 #endif
-  this->defer([this, volume]() { this->volume_trigger_->trigger(volume); });
+  this->defer([this, volume]() { this->volume_trigger_.trigger(volume); });
 }
 
 }  // namespace speaker

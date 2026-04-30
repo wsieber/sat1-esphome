@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
 
 #include "audio_pipeline.h"
 
@@ -9,10 +9,14 @@
 #include "esphome/components/media_player/media_player.h"
 #include "esphome/components/speaker/speaker.h"
 
-
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
+#include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
+
+#ifdef USE_OTA_STATE_LISTENER
+#include "esphome/components/ota/ota_backend.h"
+#endif
 
 #include <deque>
 #include <freertos/FreeRTOS.h>
@@ -20,7 +24,7 @@
 
 namespace esphome {
 
-#if USE_SNAPCAST  
+#if USE_SNAPCAST
 namespace snapcast {
 class SnapcastClient;
 }  // namespace snapcast
@@ -46,11 +50,21 @@ struct VolumeRestoreState {
   bool is_muted;
 };
 
-class SpeakerMediaPlayer : public Component, public media_player::MediaPlayer {
+class SpeakerMediaPlayer : public Component,
+                           public media_player::MediaPlayer
+#ifdef USE_OTA_STATE_LISTENER
+    ,
+                           public ota::OTAGlobalStateListener
+#endif
+{
  public:
   float get_setup_priority() const override { return esphome::setup_priority::PROCESSOR; }
   void setup() override;
   void loop() override;
+
+#ifdef USE_OTA_STATE_LISTENER
+  void on_ota_global_state(ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) override;
+#endif
 
   // MediaPlayer implementations
   media_player::MediaPlayerTraits get_traits() override;
@@ -74,33 +88,33 @@ class SpeakerMediaPlayer : public Component, public media_player::MediaPlayer {
     this->media_format_ = media_format;
   }
 
-#if USE_SNAPCAST  
-  void set_snapcast_client(esphome::snapcast::SnapcastClient* snapcast_client){ this->snapcast_client_ = snapcast_client; } 
-#endif   
+#if USE_SNAPCAST
+  void set_snapcast_client(esphome::snapcast::SnapcastClient *snapcast_client) {
+    this->snapcast_client_ = snapcast_client;
+  }
+#endif
 
-
-  Trigger<> *get_mute_trigger() const { return this->mute_trigger_; }
-  Trigger<> *get_unmute_trigger() const { return this->unmute_trigger_; }
-  Trigger<float> *get_volume_trigger() const { return this->volume_trigger_; }
+  Trigger<> *get_mute_trigger() { return &this->mute_trigger_; }
+  Trigger<> *get_unmute_trigger() { return &this->unmute_trigger_; }
+  Trigger<float> *get_volume_trigger() { return &this->volume_trigger_; }
 
   void play_file(audio::AudioFile *media_file, bool announcement, bool enqueue);
-#if USE_SNAPCAST  
+#if USE_SNAPCAST
   void play_snapcast_stream(const std::string &server_uri);
 #endif
   void set_playlist_delay_ms(AudioPipelineType pipeline_type, uint32_t delay_ms);
+
+  /// @brief Updates this->volume and saves volume/mute state to flash for restortation if publish is true.
+  void set_volume_(float volume, bool publish = true, bool restore_only = false);
+  /// @brief Sets the mute state. Restores previous volume if unmuting. Always saves volume/mute state to flash for
+  /// restoration.
+  /// @param mute_state If true, audio will be muted. If false, audio will be unmuted
+  void set_mute_state_(bool mute_state, bool restore_only = false);
 
  protected:
   // Receives commands from HA or from the voice assistant component
   // Sends commands to the media_control_commanda_queue_
   void control(const media_player::MediaPlayerCall &call) override;
-
-  /// @brief Updates this->volume and saves volume/mute state to flash for restortation if publish is true.
-  void set_volume_(float volume, bool publish = true);
-
-  /// @brief Sets the mute state. Restores previous volume if unmuting. Always saves volume/mute state to flash for
-  /// restoration.
-  /// @param mute_state If true, audio will be muted. If false, audio will be unmuted
-  void set_mute_state_(bool mute_state);
 
   /// @brief Saves the current volume and mute state to the flash for restoration.
   void save_volume_restore_state_();
@@ -109,6 +123,9 @@ class SpeakerMediaPlayer : public Component, public media_player::MediaPlayer {
   /// media pipelines are defined.
   inline bool single_pipeline_() { return (this->media_speaker_ == nullptr); }
 
+  /// Stops the media pipeline and polls until stopped to unpause it, avoiding an audible glitch.
+  void stop_and_unpause_media_();
+
   // Processes commands from media_control_command_queue_.
   void watch_media_commands_();
 
@@ -116,7 +133,7 @@ class SpeakerMediaPlayer : public Component, public media_player::MediaPlayer {
   std::unique_ptr<AudioPipeline> media_pipeline_;
   Speaker *media_speaker_{nullptr};
   Speaker *announcement_speaker_{nullptr};
-#if USE_SNAPCAST  
+#if USE_SNAPCAST
   snapcast::SnapcastClient *snapcast_client_{nullptr};
 #endif
   optional<media_player::MediaPlayerSupportedFormat> media_format_;
@@ -133,15 +150,20 @@ class SpeakerMediaPlayer : public Component, public media_player::MediaPlayer {
 
   std::deque<PlaylistItem> announcement_playlist_;
   std::deque<PlaylistItem> media_playlist_;
-  optional<PlaylistItem> curr_media_item_; 
-  optional<PlaylistItem> curr_announce_item_; 
-  
+  optional<PlaylistItem> curr_media_item_;
+  optional<PlaylistItem> curr_announce_item_;
+
   size_t buffer_size_;
 
   bool task_stack_in_psram_;
 
   bool is_paused_{false};
   bool is_muted_{false};
+#ifdef USE_SPEAKER_MEDIA_PLAYER_ON_OFF
+  bool is_turn_off_{false};
+#endif
+  uint8_t unpause_media_remaining_{0};
+  uint8_t unpause_announcement_remaining_{0};
 
   // The amount to change the volume on volume up/down commands
   float volume_increment_;
@@ -152,9 +174,9 @@ class SpeakerMediaPlayer : public Component, public media_player::MediaPlayer {
   // Used to save volume/mute state for restoration on reboot
   ESPPreferenceObject pref_;
 
-  Trigger<> *mute_trigger_ = new Trigger<>();
-  Trigger<> *unmute_trigger_ = new Trigger<>();
-  Trigger<float> *volume_trigger_ = new Trigger<float>();
+  Trigger<> mute_trigger_;
+  Trigger<> unmute_trigger_;
+  Trigger<float> volume_trigger_;
 };
 
 }  // namespace speaker

@@ -1,10 +1,10 @@
-external_components:  
+external_components:
   - source:
       type: git
       url: https://github.com/FutureProofHomes/Satellite1-ESPHome
       ref: develop
     refresh: 1s
-    components: [ version ]
+    components: [version]
 
 debug:
   update_interval: 5s
@@ -30,7 +30,6 @@ text_sensor:
     name: "Firmware Version"
     hide_timestamp: true
 
-
 sensor:
   - platform: debug
     free:
@@ -45,10 +44,6 @@ sensor:
     psram:
       name: "Free PSRAM"
       entity_category: "diagnostic"
-  - platform: wifi_signal
-    name: "Wi-Fi Signal Strength"
-    entity_category: "diagnostic"
-    update_interval: 60s
 
   - platform: internal_temperature
     name: "Internal ESP Temperature"
@@ -60,7 +55,7 @@ button:
   - platform: safe_mode
     name: "Restart Sat1 (Safe Mode)"
     entity_category: diagnostic
-  
+
   - platform: template
     id: xmos_hardware_reset
     name: "XMOS Hardware Reset"

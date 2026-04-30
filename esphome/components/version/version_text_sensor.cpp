@@ -15,7 +15,6 @@ void VersionTextSensor::setup() {
     this->publish_state(ESPHOME_VERSION "+" + this->git_commit_ + " " + App.get_compilation_time());
   }
 }
-float VersionTextSensor::get_setup_priority() const { return setup_priority::DATA; }
 void VersionTextSensor::set_hide_timestamp(bool hide_timestamp) { this->hide_timestamp_ = hide_timestamp; }
 void VersionTextSensor::dump_config() { LOG_TEXT_SENSOR("", "Version Text Sensor", this); }
 

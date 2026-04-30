@@ -58,6 +58,9 @@ class AudioTransferBuffer {
   /// @return True if there is data, false otherwise.
   virtual bool has_buffered_data() const;
 
+  /// @brief Reallocates the transfer buffer, preserving any existing data.
+  /// @param new_buffer_size The new size in bytes. Must be at least as large as available().
+  /// @return True if successful, false otherwise. On failure, the original buffer remains valid.
   bool reallocate(size_t new_buffer_size);
 
  protected:
@@ -140,7 +143,6 @@ class AudioSourceTransferBuffer : public AudioTransferBuffer {
   void set_source(const std::weak_ptr<RingBuffer> &ring_buffer) { this->ring_buffer_ = ring_buffer.lock(); };
 };
 
-
 class TimedAudioSourceTransferBuffer : public AudioSourceTransferBuffer {
   /*
    * @brief A class that implements a transfer buffer for audio sources.
@@ -148,7 +150,7 @@ class TimedAudioSourceTransferBuffer : public AudioSourceTransferBuffer {
    */
  public:
   TimedAudioSourceTransferBuffer() = default;
-  
+
   /// @brief Creates a new source transfer buffer.
   /// @param buffer_size Size of the transfer buffer in bytes.
   /// @return unique_ptr if successfully allocated, nullptr otherwise
@@ -166,11 +168,11 @@ class TimedAudioSourceTransferBuffer : public AudioSourceTransferBuffer {
   void set_source(const std::weak_ptr<TimedRingBuffer> &ring_buffer) { this->ring_buffer_ = ring_buffer.lock(); };
 
   bool has_buffered_data() const override;
-  
+
   tv_t get_current_time_stamp() const { return this->current_time_stamp_; }
   void set_current_time_stamp(tv_t time_stamp) { this->current_time_stamp_ = time_stamp; }
 
-  protected:
+ protected:
   std::shared_ptr<TimedRingBuffer> ring_buffer_;
   tv_t current_time_stamp_{0, 0};  // Current timestamp in seconds and microseconds
 };
@@ -195,22 +197,14 @@ class TimedAudioSinkTransferBuffer : public AudioSinkTransferBuffer {
   /// @return Number of bytes written
   esp_err_t transfer_data_to_sink(TickType_t ticks_to_wait, uint32_t &skip_next_frames, bool post_shift = true);
 
-
-
-
   bool has_buffered_data() const override;
   tv_t get_current_time_stamp() const { return this->current_time_stamp_; }
-    void set_current_time_stamp(tv_t time_stamp) { 
-    this->current_time_stamp_ = time_stamp; 
-  }
+  void set_current_time_stamp(tv_t time_stamp) { this->current_time_stamp_ = time_stamp; }
 
-  
-protected:
+ protected:
   tv_t current_time_stamp_{0, 0};
   uint32_t last_adjustment_at_{0};
 };
-
-
 
 }  // namespace audio
 }  // namespace esphome

@@ -8,7 +8,6 @@ globals:
     type: bool
     restore_value: false
 
-
 switch:
   # Internal switch to track when a timer is ringing on the device.
   - platform: template
@@ -50,7 +49,6 @@ switch:
       - delay: 15min
       - switch.turn_off: timer_ringing
 
-
 script:
   # Script executed when the timer is ringing, to playback sounds.
   - id: ring_timer
@@ -85,16 +83,15 @@ script:
               .perform();
             id(external_media_player)->set_playlist_delay_ms(speaker::AudioPipelineType::ANNOUNCEMENT, 0);
 
-
   # Script used to fetch the first active timer (Stored in global first_active_timer)
   - id: fetch_first_active_timer
     then:
       - lambda: |
           const auto timers = id(va).get_timers();
-          auto output_timer = timers.begin()->second;
-          for (auto &iterable_timer : timers) {
-            if (iterable_timer.second.is_active && iterable_timer.second.seconds_left <= output_timer.seconds_left) {
-              output_timer = iterable_timer.second;
+          auto output_timer = *timers.begin();
+          for (const auto &timer : timers) {
+            if (timer.is_active && timer.seconds_left <= output_timer.seconds_left) {
+              output_timer = timer;
             }
           }
           id(first_active_timer) = output_timer;
@@ -105,12 +102,9 @@ script:
       - lambda: |
           const auto timers = id(va).get_timers();
           bool output = false;
-          if (timers.size() > 0) {
-            for (auto &iterable_timer : timers) {
-              if(iterable_timer.second.is_active) {
-                output = true;
-              }
+          for (const auto &timer : timers) {
+            if (timer.is_active) {
+              output = true;
             }
           }
           id(is_timer_active) = output;
-
