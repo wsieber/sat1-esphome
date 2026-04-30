@@ -49,6 +49,31 @@ jobs:
       release-url:
       release-version:
 
+  build-dashboard-import-smoke:
+    name: Build dashboard import smoke test
+    needs:
+      - resolve-esphome-version
+    if: ${{ github.event_name == 'push' && github.ref_name == 'develop' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download dashboard import config from current commit
+        run: |
+          mkdir -p dashboard-smoke
+          url="https://raw.githubusercontent.com/FutureProofHomes/Satellite1-ESPHome/${{ github.sha }}/config/satellite1.dashboard.yaml"
+          curl -fsSL "$url" -o dashboard-smoke/satellite1.dashboard.yaml
+
+      - name: Show dashboard import refs
+        run: |
+          echo "Dashboard config source commit: ${{ github.sha }}"
+          echo "Configured package/external component refs:"
+          grep -nE '(^\s*ref:|ext_comp_repo_ref:)' dashboard-smoke/satellite1.dashboard.yaml
+
+      - name: Build dashboard import config
+        uses: esphome/build-action@v7.0.0
+        with:
+          yaml-file: dashboard-smoke/satellite1.dashboard.yaml
+          version: ${{ needs.resolve-esphome-version.outputs.esphome-version }}
+
 
   create_artifact_matrix:
     name: Create artifact matrix
