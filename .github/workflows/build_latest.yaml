@@ -4,21 +4,47 @@ on:
   push:
     branches:
       - develop
+      - staging
+      - main
+  pull_request:
+    branches:
+      - staging
+      - main
   workflow_dispatch:
 
 env:
   DEFAULT_PYTHON: "3.9"
 
 jobs:
+  resolve-esphome-version:
+    name: Resolve ESPHome version
+    runs-on: ubuntu-latest
+    outputs:
+      esphome-version: ${{ steps.resolve.outputs.esphome_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read ESPHome version from requirements.txt
+        id: resolve
+        run: |
+          version=$(grep -E '^esphome==' requirements.txt | cut -d'=' -f3)
+          if [ -z "$version" ]; then
+            echo "Failed to resolve ESPHome version from requirements.txt"
+            exit 1
+          fi
+          echo "esphome_version=$version" >> "$GITHUB_OUTPUT"
 
   build-firmware:
+    needs:
+      - resolve-esphome-version
     uses: ./.github/workflows/build.yaml
     with:
       files: |
         config/satellite1.yaml
         config/satellite1.ld2410.yaml
         config/satellite1.ld2450.yaml
-      esphome-version: 2026.3.3
+      esphome-version: ${{ needs.resolve-esphome-version.outputs.esphome-version }}
       release-summary: develop-branch
       release-url:
       release-version:
