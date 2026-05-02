@@ -148,8 +148,9 @@ class Satellite1 : public Component,
   void set_spi_flash_direct_access_mode(bool enable);
 
   void set_xmos_rst_pin(GPIOPin *xmos_rst_pin) { this->xmos_rst_pin_ = xmos_rst_pin; }
-  template<typename F>
-  void add_on_state_callback(F &&callback) { this->state_callback_.add(std::forward<F>(callback)); }
+  template<typename F> void add_on_state_callback(F &&callback) {
+    this->state_callback_.add(std::forward<F>(callback));
+  }
 
   void xmos_hardware_reset();
 

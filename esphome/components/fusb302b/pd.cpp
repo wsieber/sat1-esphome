@@ -229,6 +229,5 @@ void PDMsg::debug_log() const {
   ESP_LOGD(TAG, "Current Cnter: %d", this->msg_cnter_);
 }
 
-
 }  // namespace power_delivery
 }  // namespace esphome

@@ -224,6 +224,5 @@ float DACProxy::volume() {
   return 0.;
 }
 
-
 }  // namespace satellite1
 }  // namespace esphome

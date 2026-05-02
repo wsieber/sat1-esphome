@@ -79,7 +79,6 @@ bool I2SPortComponent::release_access_(uint8_t access) {
   return true;
 }
 
-
 i2s_std_gpio_config_t I2SPortComponent::get_pin_config() const {
   return {.mclk = (gpio_num_t) this->mclk_pin_,
           .bclk = (gpio_num_t) this->bclk_pin_,

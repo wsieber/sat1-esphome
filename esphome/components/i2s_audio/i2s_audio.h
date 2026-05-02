@@ -7,7 +7,6 @@
 #include "esphome/core/defines.h"
 #include <driver/i2s_std.h>
 
-
 namespace esphome {
 namespace i2s_audio {
 
@@ -42,10 +41,8 @@ class I2SAudioBase {
   virtual void register_at_parent() = 0;
   bool validate_for_duplex(I2SAudioBase *other) const {
     return ((this->i2s_access_ == other->i2s_access_) && (this->sample_rate_ == other->sample_rate_) &&
-            (this->mclk_multiple_ == other->mclk_multiple_) &&
-            (this->slot_mode_ == other->slot_mode_) && (this->std_slot_mask_ == other->std_slot_mask_) &&
-            (this->slot_bit_width_ == other->slot_bit_width_)
-    );
+            (this->mclk_multiple_ == other->mclk_multiple_) && (this->slot_mode_ == other->slot_mode_) &&
+            (this->std_slot_mask_ == other->std_slot_mask_) && (this->slot_bit_width_ == other->slot_bit_width_));
   }
 
   i2s_std_clk_config_t get_std_clk_cfg() const {
@@ -94,7 +91,6 @@ class I2SAudioBase {
   virtual bool IRAM_ATTR i2s_overflow_cb(i2s_chan_handle_t handle, i2s_event_data_t *event, void *user_ctx) {
     return true;
   }
-
 
   i2s_slot_mode_t slot_mode_;
   i2s_std_slot_mask_t std_slot_mask_;
