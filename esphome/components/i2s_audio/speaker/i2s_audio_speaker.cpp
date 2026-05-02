@@ -266,14 +266,12 @@ void I2SAudioSpeaker::speaker_task(void *params) {
     this_speaker->i2s_sent_time_queue_ = xQueueCreate(dma_buffers_count + 1, sizeof(int64_t));
   }
 
-#ifndef USE_I2S_LEGACY
   uint8_t *scaling_buffer = nullptr;
   if (expand_factor > 1) {
     // Allocate a scaling buffer to convert the audio data to the required bits per sample
     // The size of the scaling buffer is the same as the DMA buffer size, but with the expanded bits per sample
     scaling_buffer = new uint8_t[dma_buffer_size_bytes];
   }
-#endif
 
   if (this_speaker->send_esp_err_to_event_group_(this_speaker->allocate_buffers_(read_buffer_size, ring_buffer_size))) {
     // Failed to allocate buffers
@@ -379,16 +377,6 @@ void I2SAudioSpeaker::speaker_task(void *params) {
         const size_t bytes_to_write = read_buffer_size / dma_buffers_count;
         size_t bytes_written = 0;
 
-#ifdef USE_I2S_LEGACY
-        if (expand_factor == 1) {
-          i2s_write(this_speaker->parent_->get_port(), this_speaker->data_buffer_ + i * bytes_to_write, bytes_to_write,
-                    &bytes_written, pdMS_TO_TICKS(dma_buffer_duration_ms * 5));
-        } else if (expand_factor > 1) {
-          i2s_write_expand(this_speaker->parent_->get_port(), this_speaker->data_buffer_ + i * bytes_to_write,
-                           bytes_to_write, audio_stream_info.get_bits_per_sample(), this_speaker->bits_per_sample_,
-                           &bytes_written, pdMS_TO_TICKS(dma_buffer_duration_ms * 5));
-        }
-#else
         if (expand_factor == 1) {
           i2s_channel_write(this_speaker->parent_->get_tx_handle(), this_speaker->data_buffer_ + i * bytes_to_write,
                             bytes_to_write, &bytes_written, pdMS_TO_TICKS(dma_buffer_duration_ms * 5));
@@ -404,7 +392,6 @@ void I2SAudioSpeaker::speaker_task(void *params) {
                                 &bytes_written, pdMS_TO_TICKS(dma_buffer_duration_ms * 5));
           bytes_written /= 2;
         }
-#endif
 
         if (bytes_written != bytes_to_write) {
           xEventGroupSetBits(this_speaker->event_group_, SpeakerEventGroupBits::ERR_ESP_INVALID_SIZE);
@@ -436,12 +423,10 @@ void I2SAudioSpeaker::speaker_task(void *params) {
     xEventGroupSetBits(this_speaker->event_group_, SpeakerEventGroupBits::STATE_STOPPING);
 
     this_speaker->stop_i2s_channel_();
-#ifndef USE_I2S_LEGACY
     if (scaling_buffer != nullptr) {
       // Deallocate the scaling buffer if it was allocated
       delete[] scaling_buffer;
     }
-#endif
   }
   this_speaker->delete_task_(read_buffer_size);
 }
@@ -565,7 +550,6 @@ esp_err_t I2SAudioSpeaker::allocate_buffers_(size_t data_buffer_size, size_t rin
   return ESP_OK;
 }
 
-#ifndef USE_I2S_LEGACY
 bool IRAM_ATTR I2SAudioSpeaker::i2s_on_sent_cb(i2s_chan_handle_t handle, i2s_event_data_t *event, void *user_ctx) {
   int64_t now = esp_timer_get_time();
 
@@ -585,7 +569,6 @@ bool IRAM_ATTR I2SAudioSpeaker::i2s_on_sent_cb(i2s_chan_handle_t handle, i2s_eve
 
   return need_yield1 | need_yield2 | need_yield3;
 }
-#endif
 
 esp_err_t I2SAudioSpeaker::start_i2s_driver_(audio::AudioStreamInfo &audio_stream_info) {
   if (this->has_fixed_i2s_rate() && (this->sample_rate_ != audio_stream_info.get_sample_rate())) {  // NOLINT
@@ -597,18 +580,12 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver_(audio::AudioStreamInfo &audio_strea
     // Can't reconfigure I2S bus, and bit depth must match the configured value
     return ESP_ERR_NOT_SUPPORTED;
   }
-#if USE_I2S_LEGACY
-  if (!this->start_i2s_channel_()) {
-    return ESP_ERR_INVALID_STATE;
-  }
-#else
   const i2s_event_callbacks_t callbacks = {
       .on_sent = i2s_on_sent_cb,
   };
   if (!this->start_i2s_channel_(callbacks)) {
     return ESP_ERR_INVALID_STATE;
   }
-#endif
   return ESP_OK;
 }
 
