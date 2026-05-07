@@ -73,9 +73,12 @@ micro_wake_word:
                       - if:
                           condition:
                             media_player.is_announcing:
+                              id: external_media_player
+
                           then:
                             - media_player.stop:
                                 announcement: true
+                                id: external_media_player
                           # Start the voice assistant and play the wake sound, if enabled
                           else:
                             - if:
@@ -85,7 +88,7 @@ micro_wake_word:
                                   - script.execute:
                                       id: play_sound
                                       priority: true
-                                      sound_file: !lambda return id(wake_word_triggered_sound);
+                                      sound_file: "wake_word_triggered_sound"
                                   - delay: 300ms
                             - voice_assistant.start:
                                 wake_word: !lambda return wake_word;
@@ -223,6 +226,7 @@ script:
             - wait_until:
                 not:
                   media_player.is_announcing:
+                    id: external_media_player
             - if:
                 condition:
                   switch.is_off: timer_ringing

@@ -31,6 +31,11 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
+  # Global variable tracking the XMOS flasher status.
+  - id: pd_power_contract
+    type: int
+    restore_value: no
+    initial_value: '0'
 
 esphome:
   name: ${node_name}
@@ -79,6 +84,7 @@ packages:
   sensors: !include common/hat_sensors.yaml
   buttons: !include common/buttons.yaml
   ha: !include common/home_assistant.yaml
+  spk: !include common/speaker.yaml
   mp: !include common/media_player.yaml
   va: !include common/voice_assistant.yaml
   timer: !include common/timer.yaml
@@ -89,6 +95,21 @@ packages:
   # mmwave_ld2450: !include common/mmwave_ld2450.yaml
   # debug: !include common/debug.yaml
   # developer: !include common/developer.yaml
+
+fusb302b:
+  id: pd_fusb302b
+  irq_pin: GPIO1
+  request_voltage: 20
+  on_power_ready:
+    then:
+      - logger.log:
+          format: "PD contract got accepted: %s"
+          args: ['id(pd_fusb302b).contract.c_str()']
+      - text_sensor.template.publish:
+          id: pd_state_text
+          state: !lambda 'return id(pd_fusb302b).contract;'
+      - lambda: id(pd_power_contract) = id(pd_fusb302b).contract_voltage;
+      - script.execute: tas2780_ensure_active
 
 http_request:
 

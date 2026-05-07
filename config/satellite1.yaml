@@ -7,7 +7,7 @@ substitutions:
 
 packages:
   # This is an inline package to prefix the on_client_connected with the wait_until action
-  # It must appear before the actual package so it becomes the orignal config and the
+  # It must appear before the actual package so it becomes the original config and the
   # on_client_connected list from the package config is appended onto this one.
   va_connected_wait_for_ble_and_flasher:
     voice_assistant:
@@ -48,6 +48,7 @@ packages:
                 - memory_flasher.write_embedded_image:
 
   home-assistant-voice: !include satellite1.base.yaml
+  sendspin: !include common/sendspin.yaml
 
 esphome:
   project:
@@ -100,18 +101,27 @@ external_components:
       type: local
       path: ../esphome/components
     components:
-      - audio
       - fusb302b
       - i2s_audio
       - memory_flasher
-      - micro_wake_word
-      - mixer
       - pcm5122
-      - resampler
       - satellite1
-      - snapcast
-      - speaker
       - tas2780
+
+  - source:
+      # https://github.com/esphome/esphome/pull/12429
+      type: git
+      url: https://github.com/esphome/esphome
+      ref: ff8ce89556748509d7ee8724e12d9d43d3c8c1e8
+    refresh: 300s
+    components: [http_request]
+
+media_player:
+  - platform: speaker_source
+    id: !extend external_media_player
+    media_pipeline:
+      sources:
+        - sendspin_media_source
 
 logger:
   deassert_rts_dtr: true

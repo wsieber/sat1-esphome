@@ -46,7 +46,7 @@ CONFIG_SCHEMA = (
 TAS2780_ACTION_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.use_id(tas2780),
-        cv.Optional(CONF_MODE, default=2) : cv.int_range(0,3)
+        cv.Optional(CONF_MODE, default=2) : cv.templatable(cv.int_range(min=0, max=3)),
     }
 )
 
@@ -58,7 +58,7 @@ async def tas2780_action(config, action_id, template_arg, args):
     return var
 
 @automation.register_action("tas2780.activate", ActivateAction, TAS2780_ACTION_SCHEMA, synchronous=True)
-async def tas2780_action(config, action_id, template_arg, args):
+async def tas2780_activate_action(config, action_id, template_arg, args):
     tas2780 = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, tas2780)
     mode_ = config.get(CONF_MODE)
