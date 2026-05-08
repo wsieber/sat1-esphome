@@ -3,7 +3,7 @@ from pathlib import Path
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import uart
+from esphome.components import mdns, uart
 from esphome.const import CONF_ID, Framework
 from esphome.core.entity_helpers import (
     register_device_class,
@@ -15,6 +15,15 @@ from esphome.core import CORE, HexInt
 CODEOWNERS = ["@FutureProofHomes"]
 DEPENDENCIES = ["uart"]
 MULTI_CONF = False
+
+# The radar tuner exposes a lightweight HTTP endpoint, but it does not use
+# ESPHome's full web_server component. Reserve the matching mDNS service slot
+# so the generated _http record cannot overwrite Sendspin's _sendspin record.
+if "satellite1_radar" not in mdns.COMPONENTS_WITH_MDNS_SERVICES:
+    mdns.COMPONENTS_WITH_MDNS_SERVICES = (
+        *mdns.COMPONENTS_WITH_MDNS_SERVICES,
+        "satellite1_radar",
+    )
 
 # Headroom for entities that may be registered dynamically at runtime.
 #
