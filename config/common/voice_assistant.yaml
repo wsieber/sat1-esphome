@@ -36,11 +36,11 @@ microphone:
 micro_wake_word:
   id: mww
   models:
-    - model: hey_jarvis
+    - model: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/wake-word/hey_jarvis.json
       id: hey_jarvis
-    - model: https://github.com/kahrendt/microWakeWord/releases/download/okay_nabu_20241226.3/okay_nabu.json
+    - model: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/wake-word/okay_nabu.json
       id: okay_nabu
-    - model: https://github.com/kahrendt/microWakeWord/releases/download/stop/stop.json
+    - model: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/wake-word/stop.json
       id: stop
       internal: true
   vad:
