@@ -44,6 +44,14 @@ spi:
     miso_pin: GPIO13
     interface: SPI2
 
+uart:
+  - id: uart_mmwave
+    tx_pin: GPIO43
+    rx_pin: GPIO44
+    baud_rate: 256000
+    parity: NONE
+    stop_bits: 1
+
 i2s_audio:
   - id: i2s_shared
     i2s_lrclk_pin: GPIO07

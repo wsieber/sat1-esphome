@@ -13,6 +13,7 @@ external_components:
       - memory_flasher
       - pcm5122
       - satellite1
+      - satellite1_radar
       - tas2780
 
   - source:
