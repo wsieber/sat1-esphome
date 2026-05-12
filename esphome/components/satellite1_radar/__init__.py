@@ -3,27 +3,27 @@ from pathlib import Path
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import mdns, uart
-from esphome.const import CONF_ID, Framework
+from esphome.components import mdns, socket, uart
+from esphome.const import CONF_ESPHOME, CONF_ID, Framework
 from esphome.core.entity_helpers import (
     register_device_class,
     register_icon,
     register_unit_of_measurement,
 )
 from esphome.core import CORE, HexInt
+import esphome.final_validate as fv
 
 CODEOWNERS = ["@FutureProofHomes"]
-DEPENDENCIES = ["uart"]
+DEPENDENCIES = ["network","uart"]
 MULTI_CONF = False
 
-# The radar tuner exposes a lightweight HTTP endpoint, but it does not use
-# ESPHome's full web_server component. Reserve the matching mDNS service slot
-# so the generated _http record cannot overwrite Sendspin's _sendspin record.
-if "satellite1_radar" not in mdns.COMPONENTS_WITH_MDNS_SERVICES:
-    mdns.COMPONENTS_WITH_MDNS_SERVICES = (
-        *mdns.COMPONENTS_WITH_MDNS_SERVICES,
-        "satellite1_radar",
-    )
+
+def _consume_sockets(config):
+    """Register socket needs for this component."""
+    # Example: 1 web-server
+    socket.consume_sockets(1, "satellite1_radar")(config)
+    return config
+
 
 # Headroom for entities that may be registered dynamically at runtime.
 #
@@ -57,8 +57,19 @@ CONFIG_SCHEMA = cv.All(
     .extend(cv.COMPONENT_SCHEMA)
     .extend(uart.UART_DEVICE_SCHEMA),
     cv.only_with_framework(Framework.ESP_IDF),
+    _consume_sockets,
 )
 
+def _final_validate(config):
+    full_config = fv.full_config.get()[CONF_ESPHOME]
+    if "web_server" not in full_config:
+        mdns.COMPONENTS_WITH_MDNS_SERVICES = (
+            *mdns.COMPONENTS_WITH_MDNS_SERVICES,
+            "satellite1_radar",
+        )
+    return config
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 async def to_code(config):
     device_class_indices = {
