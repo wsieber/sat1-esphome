@@ -14,7 +14,7 @@ esphome:
 packages:
   FutureProofHomes.Satellite1:
     url: &repo_url "https://github.com/futureproofhomes/satellite1-esphome"
-    ref: &repo_ref "develop"
+    ref: &repo_ref "staging"
     refresh: 1s
     files:
       # Main config files, don't remove
