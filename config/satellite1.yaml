@@ -67,8 +67,6 @@ esp32_improv:
     - lambda: id(improv_ble_in_progress) = false;
     - script.execute: control_leds
 
-http_request:
-
 ota:
   - platform: http_request
     id: ota_http_request
@@ -116,13 +114,6 @@ external_components:
       ref: ff8ce89556748509d7ee8724e12d9d43d3c8c1e8
     refresh: 300s
     components: [http_request]
-
-media_player:
-  - platform: speaker_source
-    id: !extend external_media_player
-    media_pipeline:
-      sources:
-        - sendspin_media_source
 
 logger:
   deassert_rts_dtr: true
