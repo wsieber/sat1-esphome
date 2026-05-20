@@ -48,7 +48,6 @@ packages:
                 - memory_flasher.write_embedded_image:
 
   home-assistant-voice: !include satellite1.base.yaml
-  sendspin: !include common/sendspin.yaml
 
 esphome:
   project:
