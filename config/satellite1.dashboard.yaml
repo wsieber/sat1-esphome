@@ -20,7 +20,6 @@ packages:
       # Main config files, don't remove
       - config/satellite1.base.yaml
       - config/common/dashboard_build.yaml
-      - config/common/sendspin.yaml
       - path: config/common/components.external.yaml
         vars:
           ext_comp_repo_url: *repo_url
