@@ -5,7 +5,7 @@ substitutions:
   mute_switch_off_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/mute_switch_off.flac
   timer_finished_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/timer_finished.flac
   #wake_word_triggered_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/wake_word_triggered.flac
-  wake_word_triggered_sound_file: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/greetingsearthlings.wav
+  wake_word_triggered_sound_file: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/awake1.wav
   factory_reset_initiated_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/factory_reset_initiated.mp3
   factory_reset_cancelled_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/factory_reset_cancelled.mp3
   factory_reset_confirmed_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/factory_reset_confirmed.mp3
