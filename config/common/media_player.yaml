@@ -17,7 +17,7 @@ substitutions:
   # costs ~2% extra flash. The local mono announcement pipeline plays them unchanged - the decode
   # chain carries the file's own channel count and the mixer maps it onto its 2-channel output.
   timer_finished_sound_file: sounds/timer_finished.mp3
-  wake_word_triggered_sound_file: sounds/wake_word_triggered.mp3
+  wake_word_triggered_sound_file: sounds/wake_word_triggered.flac
   # ~0.4s faint fading 550 Hz tone. The Sonos stop preempt in tts_routing.yaml: a playing
   # AudioClip cannot be cancelled through Home Assistant, but a new LOW-priority clip interrupts
   # a playing LOW clip at any time, so announcing this IS the stop. Deliberately not digital
