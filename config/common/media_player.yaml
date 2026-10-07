@@ -20,10 +20,14 @@ substitutions:
   timer_finished_sound_file: sounds/timer_finished.mp3
   wake_word_triggered_sound_file: sounds/yo.flac
   # Time-of-day wake greetings, picked in voice_assistant.yaml by the hour on ha_time. The plain
-  # wake chime above still plays until the clock has synced after boot.
+  # wake chime above still plays until the clock has synced after boot. The _f set (female voice)
+  # plays for the secondary wake word slot, the other set for the primary.
   wake_good_morning_sound_file: sounds/morning.mp3
   wake_good_afternoon_sound_file: sounds/afternoon.mp3
   wake_good_evening_sound_file: sounds/evening.mp3
+  wake_good_morning_f_sound_file: sounds/morning_f.mp3
+  wake_good_afternoon_f_sound_file: sounds/afternoon_f.mp3
+  wake_good_evening_f_sound_file: sounds/evening_f.mp3
   # ~0.4s faint fading 550 Hz tone. The Sonos stop preempt in tts_routing.yaml: a playing
   # AudioClip cannot be cancelled through Home Assistant, but a new LOW-priority clip interrupts
   # a playing LOW clip at any time, so announcing this IS the stop. Deliberately not digital
@@ -63,6 +67,12 @@ audio_file:
     file: ${wake_good_afternoon_sound_file}
   - id: wake_good_evening_sound
     file: ${wake_good_evening_sound_file}
+  - id: wake_good_morning_f_sound
+    file: ${wake_good_morning_f_sound_file}
+  - id: wake_good_afternoon_f_sound
+    file: ${wake_good_afternoon_f_sound_file}
+  - id: wake_good_evening_f_sound
+    file: ${wake_good_evening_f_sound_file}
   - id: stop_clip_sound
     file: ${stop_clip_sound_file}
   - id: center_button_press_sound

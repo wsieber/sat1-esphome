@@ -188,16 +188,22 @@ micro_wake_word:
                                                   priority: true
                                                   # Greeting by local time: midnight-noon morning,
                                                   # noon-6pm afternoon, 6pm-midnight evening. The
+                                                  # secondary slot's wake word (Assistant 2, the
+                                                  # female-voice pipeline) gets the _f set. The
                                                   # plain chime until ha_time has synced.
                                                   sound_file: !lambda |-
                                                     auto now = id(ha_time).now();
                                                     if (!now.is_valid())
                                                       return std::string("wake_word_triggered_sound");
-                                                    if (now.hour < 12)
-                                                      return std::string("wake_good_morning_sound");
-                                                    if (now.hour < 18)
-                                                      return std::string("wake_good_afternoon_sound");
-                                                    return std::string("wake_good_evening_sound");
+                                                    mww_runtime_loader::SlotView views[mww_runtime_loader::WL_SLOTS];
+                                                    uint32_t dl = 0, total = 0;
+                                                    int dl_slot = -1;
+                                                    id(mww_loader)->snapshot(views, dl, total, dl_slot);
+                                                    const bool female = !wake_word.empty() && views[1].word == wake_word;
+                                                    const char *part = now.hour < 12 ? "morning"
+                                                                     : now.hour < 18 ? "afternoon"
+                                                                                     : "evening";
+                                                    return std::string("wake_good_") + part + (female ? "_f" : "") + "_sound";
                                               - delay: 300ms
                                             else:
                                               - if:
