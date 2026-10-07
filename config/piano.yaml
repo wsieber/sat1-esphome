@@ -1,0 +1,12 @@
+# Piano 4e23f8 (satellite1-4e23f8, 192.168.41.178): for `esphome logs config/piano.yaml`.
+# Flash with satellite1.yaml as usual; this only adds the API key Home Assistant gave this device,
+# which the command line needs to connect. The key lives in the gitignored secrets.yaml.
+packages:
+  satellite1: !include satellite1.yaml
+
+api:
+  encryption:
+    key: !secret piano_api_key
+
+wifi:
+  use_address: 192.168.41.178

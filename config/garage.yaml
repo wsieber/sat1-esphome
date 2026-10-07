@@ -1,0 +1,12 @@
+# Garage db7c80 (satellite1-db7c80, 192.168.41.181): for `esphome logs config/garage.yaml`.
+# Flash with satellite1.yaml as usual; this only adds the API key Home Assistant gave this device,
+# which the command line needs to connect. The key lives in the gitignored secrets.yaml.
+packages:
+  satellite1: !include satellite1.yaml
+
+api:
+  encryption:
+    key: !secret garage_api_key
+
+wifi:
+  use_address: 192.168.41.181

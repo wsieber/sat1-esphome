@@ -1,0 +1,12 @@
+# Theater Sat1 c2f5b8 (satellite1-c2f5b8, 192.168.41.180): for `esphome logs config/theater.yaml`.
+# Flash with satellite1.yaml as usual; this only adds the API key Home Assistant gave this device,
+# which the command line needs to connect. The key lives in the gitignored secrets.yaml.
+packages:
+  satellite1: !include satellite1.yaml
+
+api:
+  encryption:
+    key: !secret theater_api_key
+
+wifi:
+  use_address: 192.168.41.180
