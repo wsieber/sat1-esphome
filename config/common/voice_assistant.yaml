@@ -203,8 +203,20 @@ micro_wake_word:
                                                     const char *part = now.hour < 12 ? "morning"
                                                                      : now.hour < 18 ? "afternoon"
                                                                                      : "evening";
+                                                    ESP_LOGD("greeting", "wake word '%s', primary '%s', secondary '%s' -> %s %s",
+                                                             wake_word.c_str(), views[0].word.c_str(), views[1].word.c_str(),
+                                                             part, female ? "female" : "male");
                                                     return std::string("wake_good_") + part + (female ? "_f" : "") + "_sound";
+                                              # A spoken greeting runs about a second, and a mic opened
+                                              # under it transcribes it ("Good morning.") as the query.
+                                              # Listen once it has finished, capped in case it never
+                                              # starts.
                                               - delay: 300ms
+                                              - wait_until:
+                                                  condition:
+                                                    not:
+                                                      media_player.is_announcing: external_media_player
+                                                  timeout: 4s
                                             else:
                                               - if:
                                                   condition:
