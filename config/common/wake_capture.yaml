@@ -1,7 +1,9 @@
-# Wake word capture for retraining: every wake word firing sends the ~3s of audio the wake word
-# engine heard to the microWakeWord trainer's capture queue, where it can be reviewed and filed as
-# a negative (a false trigger) for the next training run. Turn it off per device with the
-# "Wake word capture" switch. The trigger is in voice_assistant.yaml's on_wake_word_detected.
+# Wake word capture for retraining: wake word firings send the ~3s of audio the wake word engine
+# heard to the microWakeWord trainer's capture queue, where it can be reviewed and filed as a
+# negative (a false trigger) for the next training run. The "Wake word capture" select picks
+# which firings: Off, "Likely false triggers" (the session's first turn heard nothing, failed
+# speech-to-text, or was only a dismissal like "stop" or "never mind"), or "All wakes". The
+# hooks are in voice_assistant.yaml: on_wake_word_detected, on_stt_end and on_error.
 substitutions:
   wake_capture_url: http://192.168.41.248:8789/api/upload_captured_audio_raw
 
@@ -13,3 +15,17 @@ wake_capture:
     microphone: sat1_mics
     channels: 1
     gain_factor: 6
+
+select:
+  - platform: template
+    id: wake_capture_mode
+    name: "Wake word capture"
+    icon: mdi:waveform
+    entity_category: config
+    options:
+      - "Off"
+      - "Likely false triggers"
+      - "All wakes"
+    initial_option: "Likely false triggers"
+    optimistic: true
+    restore_value: true

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "esphome/components/microphone/microphone_source.h"
-#include "esphome/components/switch/switch.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 
@@ -26,12 +25,18 @@ class WakeCapture : public Component {
   void set_url(const std::string &url) { this->url_ = url; }
   void set_pre_roll_ms(uint32_t ms) { this->pre_roll_ms_ = ms; }
   void set_post_roll_ms(uint32_t ms) { this->post_roll_ms_ = ms; }
-  void set_enable_switch(switch_::Switch *sw) { this->enable_switch_ = sw; }
-  void set_enabled(bool enabled) { this->enabled_ = enabled; }
 
   /// Called from on_wake_word_detected. Returns at once; the clip is cut after the post-roll and
-  /// uploaded by a background task. A firing while the previous clip is still pending is dropped.
-  void capture(const std::string &wake_word, const char *event_type = "wake_detected");
+  /// uploaded by a background task. With hold, the cut clip waits for one of the release calls
+  /// below and is dropped if none comes within HOLD_TIMEOUT. A new firing replaces a held clip.
+  void capture(const std::string &wake_word, bool hold);
+
+  /// The session's first transcript decides a held clip: nothing heard, or only a dismissal
+  /// ("stop", "never mind"), sends it as a likely false trigger; anything else drops it. No-op
+  /// when nothing is held, so later turns of the same conversation are ignored.
+  void release_for_transcript(const std::string &text);
+  /// The first speech-to-text stage failed (for example, no text recognized): send a held clip.
+  void release_for_stt_error(const std::string &code);
 
  protected:
   struct Job {
@@ -39,18 +44,22 @@ class WakeCapture : public Component {
     size_t samples;
     std::string wake_word;
     std::string event_type;
+    std::string notes;
   };
 
+  enum class Decision : uint8_t { NONE, SEND, DROP };
+
   void on_audio_(const std::vector<uint8_t> &data);
+  void decide_(Decision decision, const std::string &why);
+  void send_(Job *job);
+  void free_(Job *job);
   static void upload_task(void *arg);
   bool upload_(const Job &job);
 
   microphone::MicrophoneSource *mic_source_{nullptr};
-  switch_::Switch *enable_switch_{nullptr};
   std::string url_;
   uint32_t pre_roll_ms_{2750};
   uint32_t post_roll_ms_{250};
-  bool enabled_{true};
 
   // Ring of the most recent samples, in PSRAM. Written from the microphone's task, read from
   // loop(), so both sides go through ring_lock_.
@@ -64,21 +73,19 @@ class WakeCapture : public Component {
   bool pending_{false};
   uint64_t due_at_sample_{0};
   uint32_t pending_since_ms_{0};
+  bool pending_hold_{false};
   std::string pending_wake_word_;
-  const char *pending_event_type_{""};
+
+  // A cut clip waiting for the session to decide it, and that decision if it came first.
+  Job *held_{nullptr};
+  uint32_t held_since_ms_{0};
+  Decision decision_{Decision::NONE};
+  std::string decision_why_;
 
   QueueHandle_t jobs_{nullptr};
   uint32_t sent_{0};
   uint32_t dropped_{0};
   uint32_t failed_{0};
-};
-
-class WakeCaptureSwitch : public switch_::Switch, public Parented<WakeCapture> {
- protected:
-  void write_state(bool state) override {
-    this->parent_->set_enabled(state);
-    this->publish_state(state);
-  }
 };
 
 }  // namespace wake_capture

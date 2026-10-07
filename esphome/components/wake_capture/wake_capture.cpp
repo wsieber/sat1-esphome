@@ -6,6 +6,7 @@
 #include <esp_http_client.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 
 namespace esphome {
@@ -22,6 +23,32 @@ static constexpr UBaseType_t UPLOAD_TASK_PRIORITY = 2;
 static constexpr int HTTP_TIMEOUT_MS = 10000;
 // If the microphone stops before the post-roll arrives, cut the clip with what there is.
 static constexpr uint32_t POST_ROLL_GRACE_MS = 1000;
+// A held clip nothing decided - the firing silenced a timer, or the session never reached
+// speech-to-text - is dropped after this.
+static constexpr uint32_t HOLD_TIMEOUT_MS = 30000;
+// The marker local_openai_stt returns when nobody spoke before its no-speech timeout.
+static const char *const NO_SPEECH_MARKER = "<no speech>";
+// What someone says to a satellite that woke by mistake. Matched against the whole transcript,
+// lowercased with punctuation removed.
+static const char *const DISMISSALS[] = {
+    "stop", "cancel", "never mind", "nevermind", "nothing", "no", "nope", "oops", "go away", "not you", "ignore",
+};
+
+static std::string normalize(const std::string &text) {
+  std::string out;
+  bool space = false;
+  for (char ch : text) {
+    if (isalnum((unsigned char) ch)) {
+      if (space && !out.empty())
+        out += ' ';
+      out += (char) tolower((unsigned char) ch);
+      space = false;
+    } else if (ch != '\'') {
+      space = true;
+    }
+  }
+  return out;
+}
 
 void WakeCapture::setup() {
   // The ring holds the pre-roll plus the post-roll, so the clip can be cut once the post-roll is in.
@@ -45,12 +72,6 @@ void WakeCapture::setup() {
   }
 
   this->mic_source_->add_data_callback([this](const std::vector<uint8_t> &data) { this->on_audio_(data); });
-
-  if (this->enable_switch_ != nullptr) {
-    auto restored = this->enable_switch_->get_initial_state_with_restore_mode();
-    this->enabled_ = restored.value_or(true);
-    this->enable_switch_->publish_state(this->enabled_);
-  }
 }
 
 void WakeCapture::dump_config() {
@@ -81,9 +102,16 @@ void WakeCapture::on_audio_(const std::vector<uint8_t> &data) {
   }
 }
 
-void WakeCapture::capture(const std::string &wake_word, const char *event_type) {
-  if (!this->enabled_ || this->is_failed() || this->url_.empty())
+void WakeCapture::capture(const std::string &wake_word, bool hold) {
+  if (this->is_failed() || this->url_.empty())
     return;
+  // A new firing ends whatever session the held clip belonged to without deciding it.
+  if (this->held_ != nullptr) {
+    ESP_LOGD(TAG, "Dropped held '%s' clip: new firing", this->held_->wake_word.c_str());
+    this->free_(this->held_);
+    this->held_ = nullptr;
+  }
+  this->decision_ = Decision::NONE;
   if (this->pending_) {
     this->dropped_++;
     ESP_LOGD(TAG, "Dropped '%s' firing: previous clip still pending", wake_word.c_str());
@@ -95,11 +123,58 @@ void WakeCapture::capture(const std::string &wake_word, const char *event_type) 
   }
   this->pending_ = true;
   this->pending_since_ms_ = millis();
+  this->pending_hold_ = hold;
   this->pending_wake_word_ = wake_word;
-  this->pending_event_type_ = event_type;
+}
+
+void WakeCapture::release_for_transcript(const std::string &text) {
+  if (this->held_ == nullptr && !(this->pending_ && this->pending_hold_))
+    return;
+  const std::string said = normalize(text);
+  if (said.empty() || text == NO_SPEECH_MARKER) {
+    this->decide_(Decision::SEND, "likely false trigger: no speech after wake");
+    return;
+  }
+  for (const char *dismissal : DISMISSALS) {
+    if (said == dismissal) {
+      this->decide_(Decision::SEND, "likely false trigger: dismissed with '" + said + "'");
+      return;
+    }
+  }
+  this->decide_(Decision::DROP, "real request");
+}
+
+void WakeCapture::release_for_stt_error(const std::string &code) {
+  if (this->held_ == nullptr && !(this->pending_ && this->pending_hold_))
+    return;
+  this->decide_(Decision::SEND, "likely false trigger: " + code);
+}
+
+void WakeCapture::decide_(Decision decision, const std::string &why) {
+  // The clip may still be waiting for its post-roll; loop() applies the decision once it is cut.
+  this->decision_ = decision;
+  this->decision_why_ = why;
 }
 
 void WakeCapture::loop() {
+  if (this->held_ != nullptr) {
+    if (this->decision_ == Decision::SEND) {
+      ESP_LOGD(TAG, "Sending held '%s' clip: %s", this->held_->wake_word.c_str(), this->decision_why_.c_str());
+      this->held_->event_type = "false_trigger";
+      this->held_->notes = "Satellite1 wake_capture, " + this->decision_why_;
+      Job *job = this->held_;
+      this->held_ = nullptr;
+      this->decision_ = Decision::NONE;
+      this->send_(job);
+    } else if (this->decision_ == Decision::DROP || millis() - this->held_since_ms_ > HOLD_TIMEOUT_MS) {
+      ESP_LOGD(TAG, "Dropped held '%s' clip: %s", this->held_->wake_word.c_str(),
+               this->decision_ == Decision::DROP ? this->decision_why_.c_str() : "no decision");
+      this->free_(this->held_);
+      this->held_ = nullptr;
+      this->decision_ = Decision::NONE;
+    }
+    return;
+  }
   if (!this->pending_)
     return;
 
@@ -127,21 +202,35 @@ void WakeCapture::loop() {
     const size_t first = std::min(samples, this->ring_samples_ - start);
     memcpy(pcm, this->ring_ + start, first * sizeof(int16_t));
     memcpy(pcm + first, this->ring_, (samples - first) * sizeof(int16_t));
-    job = new Job{pcm, samples, this->pending_wake_word_, this->pending_event_type_};
+    job = new Job{pcm, samples, this->pending_wake_word_, "wake_detected", "Satellite1 wake_capture"};
   }
   this->pending_ = false;
 
+  if (this->pending_hold_) {
+    // Decided on the next loop() pass, or right away if the decision already came in.
+    this->held_ = job;
+    this->held_since_ms_ = millis();
+    return;
+  }
+  this->send_(job);
+}
+
+void WakeCapture::send_(Job *job) {
   if (xQueueSend(this->jobs_, &job, 0) != pdTRUE) {
     this->dropped_++;
     ESP_LOGD(TAG, "Dropped '%s' clip: previous upload still running", job->wake_word.c_str());
-    allocator.deallocate(job->pcm, job->samples);
-    delete job;
+    this->free_(job);
   }
+}
+
+void WakeCapture::free_(Job *job) {
+  RAMAllocator<int16_t> allocator;
+  allocator.deallocate(job->pcm, job->samples);
+  delete job;
 }
 
 void WakeCapture::upload_task(void *arg) {
   auto *self = static_cast<WakeCapture *>(arg);
-  RAMAllocator<int16_t> allocator;
   while (true) {
     Job *job = nullptr;
     if (xQueueReceive(self->jobs_, &job, portMAX_DELAY) != pdTRUE || job == nullptr)
@@ -151,8 +240,7 @@ void WakeCapture::upload_task(void *arg) {
     } else {
       self->failed_++;
     }
-    allocator.deallocate(job->pcm, job->samples);
-    delete job;
+    self->free_(job);
   }
 }
 
@@ -175,7 +263,7 @@ bool WakeCapture::upload_(const Job &job) {
   esp_http_client_set_header(client, "X-Source-Device", device.c_str());
   esp_http_client_set_header(client, "X-Wake-Word", job.wake_word.c_str());
   esp_http_client_set_header(client, "X-Event-Type", job.event_type.c_str());
-  esp_http_client_set_header(client, "X-Notes", "Satellite1 wake_capture");
+  esp_http_client_set_header(client, "X-Notes", job.notes.c_str());
   esp_http_client_set_post_field(client, reinterpret_cast<const char *>(job.pcm),
                                  (int) (job.samples * sizeof(int16_t)));
 
@@ -187,8 +275,8 @@ bool WakeCapture::upload_(const Job &job) {
     ESP_LOGW(TAG, "Upload of '%s' clip failed: %s, HTTP %d", job.wake_word.c_str(), esp_err_to_name(err), status);
     return false;
   }
-  ESP_LOGI(TAG, "Sent %.2fs '%s' clip (%u sent, %u dropped, %u failed)", job.samples / (float) SAMPLE_RATE,
-           job.wake_word.c_str(), (unsigned) this->sent_ + 1, (unsigned) this->dropped_, (unsigned) this->failed_);
+  ESP_LOGI(TAG, "Sent %.2fs '%s' %s clip (%u sent, %u dropped, %u failed)", job.samples / (float) SAMPLE_RATE,
+           job.wake_word.c_str(), job.event_type.c_str(), (unsigned) this->sent_ + 1, (unsigned) this->dropped_, (unsigned) this->failed_);
   return true;
 }
 

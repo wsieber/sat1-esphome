@@ -3,25 +3,24 @@
 A passive microphone source keeps the last few seconds of what micro_wake_word hears in a PSRAM
 ring. On a firing, capture() waits out a short post-roll, snapshots the ring, and a background task
 POSTs it as raw 16 kHz mono PCM to the trainer's /api/upload_captured_audio_raw. The trainer
-transcribes each clip and files the ones that do not contain the wake phrase as negatives for the
-next retrain. Nothing here can delay or gate the wake itself: a busy upload drops the new clip.
+review queue holds each clip until it is marked negative (a false trigger), approved or discarded.
+capture(..., hold=true) keeps the clip back until the session shows whether the firing was likely
+false - release_for_transcript() / release_for_stt_error() send or drop it - so only those reach
+the queue. Nothing here can delay or gate the wake itself: a busy upload drops the new clip.
 """
 
 import esphome.codegen as cg
-from esphome.components import microphone, switch
+from esphome.components import microphone
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_MICROPHONE, CONF_URL, ENTITY_CATEGORY_CONFIG
+from esphome.const import CONF_ID, CONF_MICROPHONE, CONF_URL
 
 DEPENDENCIES = ["microphone", "network"]
-AUTO_LOAD = ["switch"]
 
 CONF_PRE_ROLL = "pre_roll"
 CONF_POST_ROLL = "post_roll"
-CONF_ENABLE_SWITCH = "enable_switch"
 
 wake_capture_ns = cg.esphome_ns.namespace("wake_capture")
 WakeCapture = wake_capture_ns.class_("WakeCapture", cg.Component)
-WakeCaptureSwitch = wake_capture_ns.class_("WakeCaptureSwitch", switch.Switch, cg.Parented.template(WakeCapture))
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -41,12 +40,6 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_POST_ROLL, default="250ms"): cv.All(
             cv.positive_time_period_milliseconds,
             cv.Range(max=cv.TimePeriod(seconds=1)),
-        ),
-        cv.Optional(CONF_ENABLE_SWITCH, default={"name": "Wake word capture"}): switch.switch_schema(
-            WakeCaptureSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            icon="mdi:waveform",
-            default_restore_mode="RESTORE_DEFAULT_ON",
         ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
@@ -71,7 +64,3 @@ async def to_code(config):
     cg.add(var.set_url(config[CONF_URL]))
     cg.add(var.set_pre_roll_ms(config[CONF_PRE_ROLL].total_milliseconds))
     cg.add(var.set_post_roll_ms(config[CONF_POST_ROLL].total_milliseconds))
-
-    sw = await switch.new_switch(config[CONF_ENABLE_SWITCH])
-    await cg.register_parented(sw, config[CONF_ID])
-    cg.add(var.set_enable_switch(sw))

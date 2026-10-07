@@ -114,12 +114,15 @@ micro_wake_word:
           # Send the firing's audio to the trainer for review (common/wake_capture.yaml). Only the
           # two wake word slots: the stop word fires over responses and is not being retrained.
           - lambda: |-
+              const std::string mode = id(wake_capture_mode).current_option().str();
+              if (mode == "Off")
+                return;
               mww_runtime_loader::SlotView views[mww_runtime_loader::WL_SLOTS];
               uint32_t dl = 0, total = 0;
               int dl_slot = -1;
               id(mww_loader)->snapshot(views, dl, total, dl_slot);
               if (!wake_word.empty() && (wake_word == views[0].word || wake_word == views[1].word))
-                id(wake_capture_id)->capture(wake_word);
+                id(wake_capture_id)->capture(wake_word, mode == "Likely false triggers");
           # An open test window claims the firing next (owner request, September 2026): the person
           # is checking whether a freshly downloaded word fires at all, and the ring push above is
           # the whole answer - starting a conversation on every attempt made testing miserable. A
@@ -297,6 +300,10 @@ voice_assistant:
     - lambda: id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
     - script.execute: control_leds
   on_error:
+    # A first turn whose speech-to-text failed is a likely false trigger for wake capture.
+    - lambda: |-
+        if (code.rfind("stt-", 0) == 0)
+          id(wake_capture_id)->release_for_stt_error(code);
     - if:
         condition:
           and:
@@ -345,6 +352,8 @@ voice_assistant:
           - script.execute: login_code_relisten
         else:
           - lambda: id(web_ui_app)->push_utterance(x, true);
+          # Decides a held wake capture (common/wake_capture.yaml) from the first transcript.
+          - lambda: id(wake_capture_id)->release_for_transcript(x);
   on_intent_progress:
     - if:
         condition:
