@@ -51,6 +51,18 @@ ota:
   - platform: http_request
     id: ota_http_request
 
+micro_wake_word:
+  id: mww
+  models:
+    - id: uncle_fred
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/uncle_fred.json
+    - id: frederick
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/frederick.json
+    - id: ok_emily
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/ok_emily.json
+    - id: buzz_look_an_alien
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/buzz_look_an_alien.json
+
 update:
   - platform: http_request
     name: None
