@@ -186,7 +186,18 @@ micro_wake_word:
                                               - script.execute:
                                                   id: play_sound
                                                   priority: true
-                                                  sound_file: "wake_word_triggered_sound"
+                                                  # Greeting by local time: midnight-noon morning,
+                                                  # noon-6pm afternoon, 6pm-midnight evening. The
+                                                  # plain chime until ha_time has synced.
+                                                  sound_file: !lambda |-
+                                                    auto now = id(ha_time).now();
+                                                    if (!now.is_valid())
+                                                      return std::string("wake_word_triggered_sound");
+                                                    if (now.hour < 12)
+                                                      return std::string("wake_good_morning_sound");
+                                                    if (now.hour < 18)
+                                                      return std::string("wake_good_afternoon_sound");
+                                                    return std::string("wake_good_evening_sound");
                                               - delay: 300ms
                                             else:
                                               - if:
