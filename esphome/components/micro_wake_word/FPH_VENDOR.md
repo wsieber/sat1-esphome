@@ -16,6 +16,9 @@ room-pressure margin bars, the scored close-call record, and the Wake Word Tuner
 measurements (see `mww_runtime_loader`). Nothing else is changed, deliberately: the vendor exists
 for these ~10 lines only (owner decision, September 2026 — keep maintenance minimal).
 
+- `__init__.py`: the two manifest schemas are re-declared with `extra=cv.ALLOW_EXTRA` (marked),
+  because Wake Word Studio manifests carry keys upstream rejects (`tater_native`, `calibration`, ...).
+
 ## Re-syncing on an ESPHome bump
 
 1. Bump `requirements.txt`, rebuild `.venv` (`scripts/setup_build_env.sh`).

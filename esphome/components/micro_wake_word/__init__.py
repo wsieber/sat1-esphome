@@ -164,6 +164,12 @@ MANIFEST_SCHEMA_V2 = cv.Schema(
     }
 )
 
+# FPH: Newer microWakeWord trainers (Wake Word Studio) add manifest keys upstream's strict
+# FPH: schemas reject - tater_native, calibration, label, model_format, quantization,
+# FPH: sample_rate - failing the whole config. Accept and ignore keys this component doesn't read.
+MANIFEST_SCHEMA_V1 = MANIFEST_SCHEMA_V1.extend({}, extra=cv.ALLOW_EXTRA)  # FPH
+MANIFEST_SCHEMA_V2 = MANIFEST_SCHEMA_V2.extend({}, extra=cv.ALLOW_EXTRA)  # FPH
+
 
 def _compute_local_file_path(config: dict) -> Path:
     return external_files.compute_local_file_path(DOMAIN, config[CONF_URL])
