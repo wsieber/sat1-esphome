@@ -111,6 +111,15 @@ micro_wake_word:
           # history. Inside the gate on purpose: a firing the sign-in challenge consumed is an
           # answer to a secret, and must not land in a history any signed-in browser can read.
           - lambda: id(web_ui_app)->push_wake_detection(wake_word);
+          # Send the firing's audio to the trainer for review (common/wake_capture.yaml). Only the
+          # two wake word slots: the stop word fires over responses and is not being retrained.
+          - lambda: |-
+              mww_runtime_loader::SlotView views[mww_runtime_loader::WL_SLOTS];
+              uint32_t dl = 0, total = 0;
+              int dl_slot = -1;
+              id(mww_loader)->snapshot(views, dl, total, dl_slot);
+              if (!wake_word.empty() && (wake_word == views[0].word || wake_word == views[1].word))
+                id(wake_capture_id)->capture(wake_word);
           # An open test window claims the firing next (owner request, September 2026): the person
           # is checking whether a freshly downloaded word fires at all, and the ring push above is
           # the whole answer - starting a conversation on every attempt made testing miserable. A

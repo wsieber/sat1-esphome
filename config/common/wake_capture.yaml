@@ -1,0 +1,15 @@
+# Wake word capture for retraining: every wake word firing sends the ~3s of audio the wake word
+# engine heard to the microWakeWord trainer's capture queue, where it can be reviewed and filed as
+# a negative (a false trigger) for the next training run. Turn it off per device with the
+# "Wake word capture" switch. The trigger is in voice_assistant.yaml's on_wake_word_detected.
+substitutions:
+  wake_capture_url: http://192.168.41.248:8789/api/upload_captured_audio_raw
+
+wake_capture:
+  id: wake_capture_id
+  url: ${wake_capture_url}
+  # The same audio micro_wake_word scores: the processed channel at the same gain.
+  microphone:
+    microphone: sat1_mics
+    channels: 1
+    gain_factor: 6
