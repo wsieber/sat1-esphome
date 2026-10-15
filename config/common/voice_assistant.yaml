@@ -29,6 +29,14 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  # True while a spoken time-of-day wake greeting plays. The greetings are speech, level-matched
+  # to TTS, so audio_gain_reconcile plays them at the voice level like a response rather than at
+  # the media level the plain chime uses - otherwise media volume against Voice Override sets the
+  # gap between greeting and answer. Set before the greeting starts, cleared once it drains.
+  - id: greeting_playing
+    type: bool
+    restore_value: no
+    initial_value: 'false'
   # Gain state computed by audio_gain_reconcile. Written only by that script, so the
   # apply_ducking templates and audio_gain_raise all see one consistent set of values.
   - id: media_duck_db
@@ -195,6 +203,12 @@ micro_wake_word:
                                               switch.is_on: wake_sound
                                             then:
                                               - lambda: id(web_ui_app)->queue_fsd_for(wake_word);
+                                              # A greeting (clock synced) plays at the voice level; the
+                                              # plain chime fallback stays at the media level. Ducking
+                                              # applies at once and the DAC level does not move, so the
+                                              # greeting's first samples are already right.
+                                              - lambda: id(greeting_playing) = id(ha_time).now().is_valid();
+                                              - script.execute: audio_gain_reconcile
                                               - script.execute:
                                                   id: play_sound
                                                   priority: true
@@ -229,6 +243,8 @@ micro_wake_word:
                                                     not:
                                                       media_player.is_announcing: external_media_player
                                                   timeout: 4s
+                                              - lambda: id(greeting_playing) = false;
+                                              - script.execute: audio_gain_reconcile
                                             else:
                                               - if:
                                                   condition:
@@ -613,7 +629,11 @@ script:
             // audio_gain_raise time to finish before a local response starts.
             const bool http_announcement =
                 id(http_announcement_source).get_state() == media_source::MediaSourceState::PLAYING;
-            const float ann_ref = (id(tts_playing) || http_announcement) ? voice_vol : media_vol;
+            //
+            // The spoken wake greetings are the exception among audio-file sounds: they are speech
+            // level-matched to TTS, so greeting_playing puts them at the voice level too.
+            const float ann_ref =
+                (id(tts_playing) || http_announcement || id(greeting_playing)) ? voice_vol : media_vol;
             ann_duck = (int) (db_per_unit * (ref - ann_ref) + 0.5f);
           }
 
@@ -689,7 +709,10 @@ script:
             not:
               media_player.is_announcing: external_media_player
           timeout: 30s
-      - lambda: id(tts_playing) = false;
+      # greeting_playing too, in case the wake handler that set it never reached its own clear.
+      - lambda: |-
+          id(tts_playing) = false;
+          id(greeting_playing) = false;
       - script.execute: audio_gain_reconcile
 
 switch:
