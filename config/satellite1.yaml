@@ -64,6 +64,8 @@ micro_wake_word:
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/buzz_look_an_alien.json
     - id: okay_frederick
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/okay_frederick.json
+    - id: hey_uncle_fred
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/hey_uncle_fred.json
 
 update:
   - platform: http_request
