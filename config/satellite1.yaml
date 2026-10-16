@@ -62,6 +62,10 @@ micro_wake_word:
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/okay_computer.json
       # Manifest says 0.95; on an XVF3800 real detections averaged 0.94-0.96, so 0.92 gives margin.
       probability_cutoff: 0.92
+    - id: yo_fredric
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/yo_fredric.json
+      # Manifest says 0.95; on an XVF3800 real detections averaged 0.92-0.97 (9 for 9), so 0.92.
+      probability_cutoff: 0.92
 
 update:
   - platform: http_request
