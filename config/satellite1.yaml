@@ -56,18 +56,17 @@ micro_wake_word:
   models:
     - id: frederick
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/frederickv2.json
-      # Raised to 0.96 on 2026-10-20: lower cutoffs gave too many false wakes.
+      # The manifest's 0.96, set explicitly on 2026-10-20.
       probability_cutoff: 0.96
+      # Window raised from the manifest's 5 on 2026-10-20 to cut false wakes: the score has to stay
+      # high across more frames.
+      sliding_window_size: 8
     - id: ok_emily
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/ok_emily.json
     - id: okay_computer
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/okay_computer.json
       # Manifest says 0.95; on an XVF3800 real detections averaged 0.94-0.96, so 0.92 gives margin.
       probability_cutoff: 0.92
-    - id: yo_fredric
-      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/yo_fredric.json
-      # Raised to 0.96 on 2026-10-20: lower cutoffs gave too many false wakes.
-      probability_cutoff: 0.96
 
 update:
   - platform: http_request
