@@ -20,6 +20,8 @@ micro_wake_word:
       probability_cutoff: 0.96
       sliding_window_size: 8
     # Trial (2026-10-23): the VoxPopuli Frederick retrain (Wake Word Studio run 2026-10-23-03-07-43),
-    # at the manifest settings (cutoff 0.98, window 5), on this unit only before it goes to the rest.
+    # at the manifest cutoff 0.98, on this unit only before it goes to the rest. Window 8 instead of 5:
+    # a background video false-woke it at 0.98 avg / 1.00 max, the same average as real wakes.
     - id: frederick
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/frederick.json
+      sliding_window_size: 8
