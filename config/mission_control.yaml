@@ -11,9 +11,11 @@ api:
 wifi:
   use_address: 192.168.41.179
 
-# Trial (2026-10-23): a longer window for Yo Frederick on this unit only, after three false wakes
-# from a YouTube video scored right at the 0.95 cutoff. Merged into satellite1.yaml by id.
+# Trial (2026-10-23): stricter Yo Frederick settings on this unit only, merged into satellite1.yaml
+# by id. Three false wakes from a YouTube video scored right at the 0.95 cutoff; a window of 8 alone
+# still let them through at 0.95, while real wakes mostly scored 0.97-0.98.
 micro_wake_word:
   models:
     - id: !extend yo_frederick
+      probability_cutoff: 0.96
       sliding_window_size: 8
