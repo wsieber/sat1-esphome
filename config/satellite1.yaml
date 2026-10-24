@@ -56,10 +56,6 @@ micro_wake_word:
   models:
     - id: ok_emily
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/ok_emily.json
-    - id: okay_computer
-      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/okay_computer.json
-      # Manifest says 0.95; on an XVF3800 real detections averaged 0.94-0.96, so 0.92 gives margin.
-      probability_cutoff: 0.92
     # Wake Word Studio 2026-10-23 (75k/50k, with VoxPopuli), at the manifest's cutoff 0.98 and window 5.
     - id: frederick
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/frederick.json
