@@ -54,15 +54,16 @@ ota:
 micro_wake_word:
   id: mww
   models:
-    - id: ok_emily
-      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/ok_emily.json
-    # Wake Word Studio 2026-10-23 (75k/50k, with VoxPopuli), at the manifest's cutoff 0.98 and window 5.
+    # Published in wsieber/microwakewords (cd5d2ca), all at cutoff 0.98 and window 7: the manifests'
+    # looser cutoffs false-woke on TV. Wake Word Studio 2026-10-26 (custom negatives plus football).
     - id: frederick
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/frederick.json
-    # Wake Word Studio 2026-10-24 (75k/50k, with VoxPopuli and the custom negatives), at the manifest's
-    # cutoff 0.99 and window 5.
-    - id: computer
-      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/computer.json
+    # Wake Word Studio 2026-10-26.
+    - id: alfred
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/alfred.json
+    # Wake Word Studio 2026-10-27 (custom negatives plus GC); replaces plain Batman.
+    - id: okay_batman
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/okay_batman.json
 
 update:
   - platform: http_request
