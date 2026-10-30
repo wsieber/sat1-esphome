@@ -1,6 +1,10 @@
 # Satellite1 928f08 (satellite1-928f08, 192.168.41.179): for `esphome logs config/mission_control.yaml`.
 # Flash with satellite1.yaml as usual; this only adds the API key Home Assistant gave this device,
 # which the command line needs to connect. The key lives in the gitignored secrets.yaml.
+substitutions:
+  # Trial: wake only after the speech-to-text check, with the word actually said.
+  wake_verify_mode: reroute
+
 packages:
   satellite1: !include satellite1.yaml
 
@@ -10,3 +14,19 @@ api:
 
 wifi:
   use_address: 192.168.41.179
+
+# Trial with the speech-to-text check: 0.96 rather than the published 0.98, which missed real calls;
+# the check drops the extra false fires. Merges into satellite1.yaml's model list.
+micro_wake_word:
+  models:
+    # 0.96 still missed over half of real calls.
+    - id: !extend frederick
+      probability_cutoff: 0.92
+    - id: !extend alfred
+      probability_cutoff: 0.96
+    # Computer back now that the check drops its false fires: the 2026-10-26 trial (custom
+    # negatives), a local copy in the gitignored .esphome/; the published computer.json is the
+    # older 10-24 run.
+    - model: .esphome/test_models/computer_20261026/computer.json
+      id: computer
+      probability_cutoff: 0.92

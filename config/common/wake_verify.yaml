@@ -1,0 +1,33 @@
+# Speech-to-text check of each wake (esphome/components/wake_verify): the last moments of microphone
+# audio go to Home Assistant's /api/stt, and the transcript is matched against the enabled wake
+# words. "off" wakes at once; "log" wakes at once and only logs what the check would have done;
+# "reroute" waits for the check and wakes with the word actually said, or not at all. A device yaml
+# turns it on by setting wake_verify_mode in its own substitutions. The hook is in
+# voice_assistant.yaml: on_wake_word_detected hands the wake to wake_verify.check, and on_wake runs
+# the start_wake script.
+substitutions:
+  wake_verify_mode: "off"
+  ha_url: http://192.168.41.246:8125
+  # Local OpenAI-compatible engine: about 0.1 s per clip, against 0.5-0.9 s for Home Assistant Cloud.
+  wake_verify_stt_engine: stt.local_openai_stt_01kzy1n06w2wwwr48498tgcd40
+
+wake_verify:
+  id: wake_verifier
+  # The same audio micro_wake_word scores: the processed channel at the same gain.
+  microphone:
+    microphone: sat1_mics
+    channels: 1
+    gain_factor: 6
+  micro_wake_word: mww
+  mode: ${wake_verify_mode}
+  ha_url: ${ha_url}
+  ha_token: !secret ha_token
+  stt_engine: ${wake_verify_stt_engine}
+  # 0.75 rejected genuine wakes heard as "Okay, now Wu." and "Redruck." (both 0.67) on the XVF3800.
+  match_threshold: 0.65
+  # Okay Nabu is checked too: it takes other "Okay ..." words. Stop only runs during timers and replies.
+  skip_wake_words: ["Stop"]
+  on_wake:
+    - script.execute:
+        id: start_wake
+        wake_word: !lambda return wake_word;

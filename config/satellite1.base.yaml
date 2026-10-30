@@ -140,6 +140,7 @@ packages:
   mmwave: !include common/mmwave.yaml
   sendspin: !include common/sendspin.yaml
   wake_capture: !include common/wake_capture.yaml
+  wake_verify: !include common/wake_verify.yaml
 
   ## OPTIONAL COMPONENTS
   # debug: !include common/debug.yaml

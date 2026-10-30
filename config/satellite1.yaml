@@ -126,6 +126,7 @@ external_components:
       # the upstream exit plan.
       - voice_assistant
       - wake_capture
+      - wake_verify
 
 # Swaps the registry micro-decoder for our patched fork (the submodule at
 # esphome/idf_components/micro-decoder), closing the lwIP semaphore use-after-free that

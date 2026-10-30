@@ -140,6 +140,15 @@ Assistant setting switched on first.
 See [docs/TTS-Routing.md](docs/TTS-Routing.md) for setup, the full entity list, the design
 decisions behind the implementation and troubleshooting.
 
+### Checking each wake with speech-to-text
+
+Before the device wakes, it can send the last moments of microphone audio to Home Assistant's
+speech-to-text and check that a wake word was really said: false fires from TV are dropped
+silently, and a wake caught by the wrong model goes ahead with the right word. It is off by
+default; a device file turns it on with `wake_verify_mode: reroute`.
+
+See [docs/wake-verify.md](docs/wake-verify.md) for how it works, setup and the log lines.
+
 ### Configuring the device from your browser
 
 Every Satellite1 serves its own configuration app. Open `http://<device address>/` — or click
