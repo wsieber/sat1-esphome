@@ -54,16 +54,23 @@ ota:
 micro_wake_word:
   id: mww
   models:
-    # Published in wsieber/microwakewords (cd5d2ca), all at cutoff 0.98 and window 7: the manifests'
-    # looser cutoffs false-woke on TV. Wake Word Studio 2026-10-26 (custom negatives plus football).
+    # Published in wsieber/microwakewords at cutoff 0.98 and window 7, which kept TV quiet but missed
+    # real calls. With the speech-to-text check (common/wake_verify.yaml) dropping the extra false
+    # fires, they run looser: the user's own calls score 0.92-0.96. Wake Word Studio 2026-10-26
+    # (custom negatives plus football).
     - id: frederick
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/frederick.json
+      # 0.96 still missed over half of real calls.
+      probability_cutoff: 0.92
     # Wake Word Studio 2026-10-26.
     - id: alfred
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/alfred.json
-    # Wake Word Studio 2026-10-27 (custom negatives plus GC); replaces plain Batman.
-    - id: okay_batman
-      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/okay_batman.json
+      probability_cutoff: 0.96
+    # Computerv3, the 2026-10-26 retrain (custom negatives); computer.json is the older 10-24 run.
+    # Back in place of Okay Batman now that the check drops its false fires.
+    - id: computer
+      model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/computerv3.json
+      probability_cutoff: 0.92
 
 update:
   - platform: http_request

@@ -68,12 +68,12 @@ So while Home Assistant or the speech-to-text engine is down, false fires wake t
 
 ## Modes
 
-`wake_verify_mode`, a substitution in `config/common/wake_verify.yaml`, defaults to `off`. A device file turns it on in
-its own `substitutions`; `config/mission_control.yaml` sets `reroute`.
+`wake_verify_mode`, a substitution in `config/common/wake_verify.yaml`, is `reroute`, so every Satellite1 runs the
+check. A device file can override it in its own `substitutions`.
 
 | Mode | Behaviour |
 |---|---|
-| `off` | No check. `on_wake` fires at once with the detected word, so the device behaves as before. |
+| `off` | No check. `on_wake` fires at once with the detected word, so the device behaves as it did before the check. |
 | `log` | `on_wake` fires at once with the detected word; the check runs in the background and is only logged, as `WOULD ACCEPT`, `WOULD REROUTE` or `WOULD REJECT`. |
 | `reroute` | The wake waits for the verdict, as described above. |
 
@@ -105,19 +105,20 @@ REJECT 'Alfred' score=0.33 heard='The older approach is probably.' (206 ms, 1.8s
    check off.
 2. **Engine.** `wake_verify_stt_engine` in `config/common/wake_verify.yaml` is the speech-to-text entity to use; the
    local OpenAI-compatible engine is fastest. `ha_url` is Home Assistant's address.
-3. **Mode.** Add `wake_verify_mode: reroute` (or `log` to try it first) to the device file's `substitutions`.
+3. **Mode.** `reroute` is the default; set `wake_verify_mode: log` (or `off`) in a device file's `substitutions` to
+   change it for that device.
 4. Flash, and watch the log for the lines above.
 
 The component's options (clip length, post-roll, timeouts, threshold, skip list) are listed in the docstring of
 `esphome/components/wake_verify/__init__.py`.
 
-## Tuning notes (October 2026, mission_control)
+## Tuning notes (October 2026, tested on mission_control)
 
 - **Threshold 0.65.** At 0.75, genuine wakes heard as "Okay, now Wu." and "Redruck." (both 0.67) were rejected.
   Speech-to-text often splits "Nabu" into "now" plus another word ("Okay, now who?", 0.62), and those are still
   rejected at 0.65.
-- **Lower model cutoffs.** With the check catching false fires, mission_control runs Alfred at 0.96 and Frederick and
-  Computer at 0.92 (overrides in `config/mission_control.yaml`) instead of the published 0.98. The user's own calls
+- **Lower model cutoffs.** With the check catching false fires, every Satellite1 runs Alfred at 0.96 and Frederick
+  and Computer (Computerv3) at 0.92 (in `config/satellite1.yaml`) instead of the published 0.98. The user's own calls
   scored 0.92–0.96, so 0.98 missed many of them; Computer's four false fires in its first night were all rejected.
 - **Speech-to-text inventions.** On noise the local engine sometimes returns text that was never said
   ("Transcribe audio to text (language: en).", "是的。"). These score near zero and are rejected.
