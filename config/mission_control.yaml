@@ -24,9 +24,8 @@ micro_wake_word:
       probability_cutoff: 0.92
     - id: !extend alfred
       probability_cutoff: 0.96
-    # Computer back now that the check drops its false fires: the 2026-10-26 trial (custom
-    # negatives), a local copy in the gitignored .esphome/; the published computer.json is the
-    # older 10-24 run.
-    - model: .esphome/test_models/computer_20261026/computer.json
+    # Computer back now that the check drops its false fires: Computerv3, the 2026-10-26 retrain
+    # (custom negatives); computer.json is the older 10-24 run.
+    - model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/computerv3.json
       id: computer
       probability_cutoff: 0.92
