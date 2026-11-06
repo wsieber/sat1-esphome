@@ -71,6 +71,10 @@ micro_wake_word:
     - id: computer
       model: https://raw.githubusercontent.com/wsieber/microwakewords/refs/heads/main/computerv3.json
       probability_cutoff: 0.92
+    # Trial, local and unpublished (config/.esphome is gitignored, so a fresh clone needs the file):
+    # Are Two (R2), Wake Word Studio 2026-11-02 21:22 run, as on the XVF3800s at 0.98 and window 7.
+    - id: are_two
+      model: .esphome/test_models/are_two_20261102/are_two.json
 
 update:
   - platform: http_request
