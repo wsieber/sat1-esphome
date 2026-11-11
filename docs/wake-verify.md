@@ -123,6 +123,8 @@ The component's options (clip length, post-roll, timeouts, threshold, skip list)
 - **Lower model cutoffs.** With the check catching false fires, every Satellite1 runs Alfred at 0.96 and Frederick
   and Computer (Computerv3) at 0.92 (in `config/satellite1.yaml`) instead of the published 0.98. The user's own calls
   scored 0.92–0.96, so 0.98 missed many of them; Computer's four false fires in its first night were all rejected.
+  November 2026: Frederick and Alfred were retired for Star Command (0.98, window 7, as on the XVF3800s), after a day
+  on the XVF3800s in which the check rejected every false fire it had and no false wake got through.
 - **Speech-to-text inventions.** On noise the local engine sometimes returns text that was never said
   ("Transcribe audio to text (language: en).", "是的。"). These score near zero and are rejected.
 - **Rejected clips are labelled false triggers** from the real room, useful as negatives for the next training run.
