@@ -26,7 +26,8 @@ keep the two copies identical.
 5. **Transcription.** The clip goes to `POST <ha_url>/api/stt/<stt_engine>` as 16 kHz 16-bit mono PCM, from a separate
    task so the main loop keeps running. The local OpenAI-compatible engine answers in 130–340 ms.
 6. **Matching.** The transcript is normalised (lower case, punctuation dropped, "ok" read as "okay", and "okay now
-   boo" read as "okay nabu", along with "who", "wu", "lou" and a few other second halves) and every run of
+   boo" read as "okay nabu", along with "who", "wu", "lou" and a few other second halves, and "starkman" or "stark,
+   ma'am" read as "star command") and every run of
    neighbouring words is compared with each enabled wake word, spaces removed, by edit distance. The score is
    1 − distance / length, so "Okay, Navu." scores 0.88 against Okay Nabu and "Elfrid." 0.67 against Alfred.
 7. **Verdict**, with `match_threshold` 0.65:
@@ -125,6 +126,8 @@ The component's options (clip length, post-roll, timeouts, threshold, skip list)
   scored 0.92–0.96, so 0.98 missed many of them; Computer's four false fires in its first night were all rejected.
   November 2026: Frederick and Alfred were retired for Star Command (0.98, window 7, as on the XVF3800s), after a day
   on the XVF3800s in which the check rejected every false fire it had and no false wake got through.
+  From 2026-11-12 "starkman" and "stark, ma'am" (and a few other spellings) are read as "star command" and score
+  1.00, after "Starkman." (0.64) cost real wakes on the XVF3800s and the Echo. "Start now." is left alone.
 - **Speech-to-text inventions.** On noise the local engine sometimes returns text that was never said
   ("Transcribe audio to text (language: en).", "是的。"). These score near zero and are rejected.
 - **Rejected clips are labelled false triggers** from the real room, useful as negatives for the next training run.

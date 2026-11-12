@@ -317,8 +317,13 @@ bool WakeVerify::transcribe_(std::string &text, uint32_t &elapsed_ms, int32_t &p
 // Second halves of "Nabu" that speech-to-text writes after "now": "Okay, now boo.", "Okay, now who?".
 static const char *const NABU_TAILS[] = {"boo", "bu", "who", "wu", "woo", "lou", "poo", "vu", "voo"};
 
-// Lowercase letters and digits, single spaces between words, "ok" spelled "okay", and "okay now boo" (and the
-// other NABU_TAILS) read as "okay nabu". Other "okay, now ..." speech is left alone.
+// How speech-to-text writes "Star Command" said from across a room: "Starkman.", "Stark, ma'am.".
+static const char *const STARKMAN_WORDS[] = {"starkman", "starkmann", "starkmen"};
+static const char *const STARK_TAILS[] = {"man", "maam", "mam", "men"};
+
+// Lowercase letters and digits, single spaces between words, "ok" spelled "okay", "okay now boo" (and the
+// other NABU_TAILS) read as "okay nabu", and "starkman" or "stark man" (and the other STARK_TAILS) read as
+// "star command". Other "okay, now ..." and "stark ..." speech is left alone.
 static std::vector<std::string> words_of(const std::string &s) {
   std::vector<std::string> words;
   std::string word;
@@ -341,6 +346,18 @@ static std::vector<std::string> words_of(const std::string &s) {
     if (i > 0 && i + 1 < words.size() && words[i - 1] == "okay" && words[i] == "now" &&
         std::find(std::begin(NABU_TAILS), std::end(NABU_TAILS), words[i + 1]) != std::end(NABU_TAILS)) {
       joined.push_back("nabu");
+      i++;
+      continue;
+    }
+    if (std::find(std::begin(STARKMAN_WORDS), std::end(STARKMAN_WORDS), words[i]) != std::end(STARKMAN_WORDS)) {
+      joined.push_back("star");
+      joined.push_back("command");
+      continue;
+    }
+    if (words[i] == "stark" && i + 1 < words.size() &&
+        std::find(std::begin(STARK_TAILS), std::end(STARK_TAILS), words[i + 1]) != std::end(STARK_TAILS)) {
+      joined.push_back("star");
+      joined.push_back("command");
       i++;
       continue;
     }
