@@ -58,17 +58,19 @@ Five tabs, all on the hash, in this nav order:
 
 | Route | What it does |
 |---|---|
-| `#/home` | The voice orb (assistant phase, mute, voice volume, LED ring colours), sensor readings with sparklines and calibration, timers, and the transcript per wake word |
+| `#/home` | The voice orb (assistant phase, mute, voice volume) and its Customize drawer - the orb's colors, and the LED ring's color, brightness, style and per-moment animations - sensor readings with sparklines and calibration, timers, and the transcript per wake word |
 | `#/wake-word` | Which wake words the device answers to, each with its sensitivity tuner, voice pipeline and Finished Speaking Detection; the wake chime and the stop word |
 | `#/presence` | Live radar plot with zones, or gate energies, and the radar's own settings |
-| `#/audio` | The local speaker and voice volume; TTS routing and area ducking as trees over your Home Assistant areas, with the remote speakers' volume, mic guard, timer ring and wake chime |
-| `#/settings/<page>` | `device` (facts and buttons), `updates`, `security` (auth token, password), `logs` (live logs, crash reports), `integrations` (Home Assistant side panel), `recovery` (ESP32, XMOS and radar maintenance), `amp` (the TAS2780 amplifier), `community` |
+| `#/audio/<page>` | `announcement-routing` (plain `#/audio` lands here): one Announcement Routing card: the three announcement and ducking levels, then one list of your Home Assistant areas and speakers with an Announce and a Duck box on each row (this device's own row holds "Announce on this device"), then the wake chime, timer ring and echo guard for the speakers ticked to Announce; a Speaker card with the speaker's Channel beside it only while Equalizer isn't listed. `equalizer`, listed only while the running XMOS has the speaker EQ: the speaker EQ, described below, with the speaker's Channel under Built-in Speaker; Basic by default, Advanced on the same URL |
+| `#/settings/<page>` | `device` (facts and buttons), `updates`, `security` (auth token, password), `logs` (live logs, crash reports), `integrations` (Home Assistant side panel), `recovery` (ESP32, XMOS and radar maintenance), `developer` (developer builds only: the XMOS firmware picker, the mic monitor, the TAS2780 amplifier, logs from several devices, the system monitor), `community` |
 
 When the device has a media player, the media bar rides along the bottom of every tab.
 
 `#/home` and `#/audio` were `#/controls` and `#/config` until the September 2026 rename pass, and the
 Settings pages were the cards of `#/diagnostics`; those hashes still resolve (to Home, Audio and
-`#/settings/device`) so bookmarks keep working. An unknown hash lands on Home.
+`#/settings/device`) so bookmarks keep working. `#/settings/amp`, the TAS2780 page until October
+2026, resolves to `#/settings/developer`, and on a build without developer tools that page sends you
+on to `#/settings/device`. An unknown hash lands on Home.
 
 Routing is on the hash rather than on the path because ESPHome's HTTP server has a single wildcard
 handler per method and no notion of client-side routes. A path-based router would 404 on reload for
@@ -90,9 +92,12 @@ only the handful of things `web_server` has no concept of get custom endpoints.
 |---|---|
 | `GET /api/sat1/state` | Device facts and the entity-name table |
 | `GET /api/sat1/voice` | Assistant phase, timers, transcript ring, and the newest pipeline error (message, count, age), which the orb shows in place of "Error" |
-| `GET /api/sat1/amp` | The speaker amplifier's power gain mode and digital volume level |
+| `GET /api/sat1/amp` | The speaker amplifier's power gain mode and digital volume level (developer builds) |
+| `GET /api/sat1/mic` | The mic monitor's live stream of both channels (developer builds; see Developer tools) |
+| `GET /api/sat1/sysmon` | Twelve hours of memory samples and the FreeRTOS task table (developer builds) |
 | `GET /api/sat1/ha` | The cached Home Assistant area and player tree |
 | `GET`/`POST /api/sat1/sel` | The routing and ducking selection |
+| `GET`/`POST /api/sat1/ring`, `POST /api/sat1/ring/reset`, `POST /api/sat1/ring/preview`, `POST /api/sat1/ring/preview/stop` | The LED ring's style and per-moment animations, and previews played on the ring (see The LED ring studio) |
 | `GET /api/sat1/login/nonce`, `POST /api/sat1/login` | Challenge-response sign-in; also accepts a `key` |
 | `POST /api/sat1/login/start`, `GET /api/sat1/login/poll` | The device-presence pairing window |
 | `POST /api/sat1/logout`, `POST /api/sat1/logout_all` | Expire this cookie; revoke every session |
@@ -275,7 +280,12 @@ expanded media view dressed as drawers):
 | Gzipped, as embedded | **49,367** |
 | Budget | 51,200 |
 
-That is 96% of the ceiling. The budget has been raised twice: from 40,960 B when the media footer
+October 2026, with the LED ring studio (see below), the document is 576,864 B raw and 181,409 B
+gzipped; the studio's renderer, pages, styles and copy account for about 15 KB of the gzipped
+figure. `npm run build` prints both numbers against the 52 KB target, which the app outgrew well
+before the studio. Flash is 48.8% used on a WiFi build.
+
+The September figure was 96% of the ceiling. The budget has been raised twice: from 40,960 B when the media footer
 landed at 99.8% of it, to 48 KB for the visual-polish pass, and to 50 KB (with the owner's approval)
 when the mobile sign-in work landed — the login screen, the challenge-response SHA-256/HMAC and the
 QR encoder cost about 7 KB together, and the parts that could never run were trimmed first (QR
@@ -381,13 +391,13 @@ truncated, so a very large installation degrades visibly rather than silently.
 
 Each player row carries a capability int alongside its id and name — bit 1 says the player answers
 `media_player.play_media`, bit 2 `media_player.volume_set` — read from Home Assistant's
-`supported_features` when the payload is rendered. The routing tree greys out rows without bit 1 and
-the ducking tree rows without bit 2, each with a one-line reason, rather than omitting them: a player
-silently missing from the list reads as a bug. Selecting a whole area shows a full tick on the area
+`supported_features` when the payload is rendered. The speaker list disables a row's Announce box
+without bit 1 and its Duck box without bit 2, captioning the row with a one-line reason, rather than
+omitting it: a player silently missing from the list reads as a bug. Selecting a whole area shows a full tick on the area
 and on its eligible players, while the greyed rows stay unticked — the call skips them, so showing
 them selected would misstate what plays — and the stored selection still says "whole area", which is
-what keeps the Route TTS To All Area Players switch in Home Assistant flipping with it. Permanently
-ineligible rows — an incompatible player or this device's own media player — are always shown
+what keeps the Route Announcements To All Area Players switch in Home Assistant flipping with it. Permanently
+ineligible boxes — an incompatible player's, or this device's own Duck box — are always shown
 unticked and disabled, even if an old explicit selection still names one. The call-time walks in
 `tts_routing.yaml` and `area_ducking.yaml` apply the same capability tests and reject this device
 itself when expanding the selection, which matters more than the cosmetics: Home Assistant rejects
@@ -396,13 +406,34 @@ incompatible player in a selected area used to be able to silence an announcemen
 in the call.
 
 Each row also carries an availability flag: 0 when Home Assistant reported the player `unavailable`
-or `unknown` at render time. An offline row greys out and gains an "Offline" marker in both trees,
-but — unlike a missing capability — its checkbox keeps working and a prior tick stays ticked, because
+or `unknown` at render time. An offline row greys out and gains an "Offline" caption,
+but — unlike a missing capability — its checkboxes keep working and a prior tick stays ticked, because
 being offline is transient and the selection is a setting its owner still wants when the speaker
 returns. The call-time walk in `tts_routing.yaml` applies the same state test, so no routing, chime,
 stop or volume call targets an offline player; ducking's walk already rejected unavailable states.
 Availability is as fresh as the cached payload — synced on connect and once per page load — so a
 player that drops while the page is open shows stale until reload, like every other fact in it.
+
+Two more capability bits say how a player is ducked while it plays this device's responses (October
+2026). Bit 8 is a Sonos, native or `sonos_cloud`, or a Satellite1 with an Announcement Volume
+control: the firmware holds it announcing, so it lowers its own music. Bit 16 is any other brand
+that answers `volume_set`, or whose features are unknown: the firmware turns it down to Remote
+Ducking Volume. A Satellite1 on older firmware gets neither. These are the same tests
+`duck_players_jinja` in `area_ducking.yaml` applies at call time; see
+[TTS-Routing.md](TTS-Routing.md#routed-speakers-stay-ducked). `routedLocks` in `lib/audio.js` finds
+every row that is eligible to announce, ticked to Announce and carries either bit, and the list shows
+those rows' Duck boxes ticked and disabled. A ticked box that could be unticked would be a false
+promise, since the firmware ducks them regardless. A locked box counts as ticked in its area's Duck
+box and count, so a room whose players all play responses reads whole, and the bulk boxes never add a
+locked player to the Duck selection. That way, unticking Announce later does not leave a speaker
+ducked by a pick nobody made.
+
+The one exception is a Satellite1 on older firmware ticked to Announce: its Duck box stays free and
+the row is captioned "Older firmware" (`olderSatellite`), because the firmware ducks it only if it is
+ticked to Duck. Both bits are read off the payload, so the caption appears only when some row in it
+carries bit 8 or 16 (`heldBits`). When this page drives a device on older firmware — through the
+device switcher — no row carries either bit, and every Sonos would otherwise read as an older
+Satellite1.
 
 The device rows carry the switcher's variant labels alongside the jump fields (September 2026): the
 device's transport (`e`/`w`, read from its own Network Status sensor's `Eth:`/`WiFi:` prefix — runtime
@@ -491,6 +522,10 @@ JSON in a mutex-guarded PSRAM string, rebuilt only when the hub reports a change
 rides atomics, so the httpd task never blocks the audio path. Shuffle and repeat are commands on
 `POST /api/sat1/media` dispatched to the Sendspin player. Seek is the one thing this tier cannot do:
 the hub exposes no seek passthrough, so the scrubber is read-only until a higher tier answers.
+A pause is a stop on the Sendspin wire, and Music Assistant clears a stopped player's metadata
+(2.11, PR #6271), so a clear from a connected server leaves the cached track in place: it is the
+track a resume continues, and the bar shows it only while a pause holds the card up. Only a lost
+connection empties the cache.
 
 **Tier 1 — relayed through Home Assistant.** What must round-trip (the favorite button, group
 membership, another member's volume, seek) goes through the same machinery as the big Home Assistant
@@ -559,6 +594,106 @@ points - and every level can still play or queue the whole item. Long listings a
 Assistant's 500-item partial messages and are gathered before rendering (`gatherResult` in
 `ma.js`). Search is socket-only: the relay has no route to Music Assistant's library.
 
+## The LED ring studio
+
+The Home tab's Customize button opens a chooser with two animated cards: App theme (the voice orb's
+colors, which also color the app) and the LED ring. They are styled separately and never change each other: the orb's
+colors live in the browser (`localStorage` `sat1.orb`), the ring's in the device. Firmware without
+a ring entity skips the chooser and opens the orb page. Picking an orb color morphs the sphere,
+plays a short ripple with a scale pop; with reduced motion the sphere crossfades to a still frame
+instead. What floats over the page is tinted about 7% toward the orb's first color, in both
+themes: every drawer and dialog, the header, the tab bar and side nav, popovers and menus (the
+appearance menu, dropdown lists, hint bubbles) and the toast. The tokens are `--surface-orb`,
+`--pop-orb` and `--toast-orb` in `styles/tokens.css`; `drawer.css` makes `--surface-orb` each
+panel's `--surface`, and the browser chrome's `theme-color` takes the same mix so it stays matched
+to the header (`chromeColor` in `lib/theme.js`). Drawers, the header and the navs ease to a new
+color over 0.6 s, so the drawer you pick in shifts as you pick;
+`paintOrb` raises `data-orb-ease` for that, and a Light/Dark switch leaves it down, so the navs
+change inside the page's own crossfade rather than trailing it.
+The page's own cards stay neutral (owner's choice from side-by-side mockups, October 2026).
+
+While the device waits for its wake word the ring is off, unless the LED Ring light is turned on
+in Home Assistant; then it shows that light's color, still. There is no idle animation.
+
+**The LED Ring page** plays the conversation on the device as soon as it opens - Wake word heard,
+Listening, Thinking, Replying, three seconds each, round and round - so every color, brightness
+and style pick shows on the ring as it is made. The tour is a run of previews, below every real
+voice phase, so a real wake word still wins; it pauses while the tab is hidden and ends when the
+page closes. The live ring at the top draws whatever the device is showing, from the LED Ring
+Moment sensor over the event stream; for timers, volume and mute it polls `GET /api/sat1/ring` for
+the arc and the marks the device is drawing from. Under it a link opens the ring guide. The color
+and brightness are the LED Ring light's own, written through its REST entity, so they are the same
+controls as the light in Home Assistant. The entity only takes them as a `turn_on`, so while the
+light is off (as it was when the pages opened) each pick is followed by a `turn_off`: the moments
+draw in the new color, and the ring stays off at idle. The ring style chips (Classic, Calm,
+Aurora, Party, Minimal) apply the style, which the touring ring picks up at once. A preview's
+brightness is the light's when control_leds lights it, so the firmware runs a preview again when
+the light's brightness changes; the effect and the moment are the same, so the animation carries
+on at the new brightness instead of waiting for the tour's next step.
+
+**Customize animations** lists the eight moments a style changes: Wake word heard, Listening,
+Thinking and Replying; then Timer running, Timer done, Volume and Something went wrong. Muted is
+not listed, because it is the same in every style (see below). A moment changed from its style is
+tagged EDITED, and one with its own colors OWN COLORS. The device stays dark on this page until
+asked: each row's Preview plays that moment for six seconds (again to stop), and Tour all moments
+plays each in turn, on screen and on the ring. A tap anywhere else on a row opens the moment's
+editor, which plays the draft on the device for as long as it is open, replayed as it changes.
+The editor picks one of 12 animations and its colors (the ring color, a blend either side of it,
+a rainbow, or one to three colors of its own, with presets), then the motion: clockwise or
+counter-clockwise for Spin, Comet, Orbit, Wave and Flow, where a Ripple starts (north, east, south
+or west), where the Dot sits (read as a clock face), speed, size and brightness. Flow turns the
+moment's colors round the ring; with Rainbow colors it is the rainbow Party uses, and with a single
+color it is a steady ring. Picking another animation starts its size, start or position from the
+default, since each reads that setting differently. Saving any moment makes the style Custom,
+copied from the preset it started from, and Reset puts a moment, or every moment, back. The
+editor is the drawer's only page with unsaved work - the theme and the ring's color, brightness
+and style save as they are picked - so leaving it with changes, by its back button or by the
+drawer closing any of its ways, first asks Leave without saving? in the app's confirm dialog
+(`DxConfirmDialog`). Keep editing stays, and a pull-down that was stopped springs back.
+
+Some things do not change with the style, by design:
+
+- Timer running and Volume are always an arc, because the lit length is the information.
+- Errors are always red.
+- Muted is the red marks over what the ring shows at idle - nothing, or the LED Ring light's
+  color: red beside each mic when the mics are off, red arcs between them when the speaker is
+  silent. A running timer shows its own two red marks instead.
+- Setup, startup, update, sign-in, warning, headphone and factory reset signals keep their fixed
+  YAML effects. The ring guide (What do the lights mean?) shows each one as its effect draws it,
+  and a tap plays it on the device. Signals that look the same share a card (Home Assistant not
+  ready covers both of its causes, Done or approved the update and sign-in successes, Refused or
+  failed the warning flashes and a failed update). One that plays once, a few flashes or a sweep,
+  repeats on its card after a pause, and a tap plays it twice on the device in step with the card.
+
+During the four conversation moments, the four LEDs nearest the mics (0, 6, 12 and 18) are held
+to half brightness. The cap does not apply to timers, volume, mute,
+errors or the fixed signals, whose LEDs are already the YAML's own. The likely reason the cap is
+needed, LED noise reaching the mics, has not been measured.
+
+**Firmware.** `esphome/components/satellite1_ring` owns the styles. `ring_fx_core.h` is a pure
+24-LED renderer with no ESPHome dependency; the voice_assistant_leds light's Styled effect draws
+the current moment through it. Each `control_leds` child script names its moment (`set_moment`), which
+publishes the LED Ring Moment diagnostic text sensor (disabled by default in Home Assistant). The
+style is also an **LED Ring Style** select in Home Assistant, whose Custom option is the edited
+style. Edits are saved to NVS as one blob, three seconds after the last change, so a slider drag
+costs one flash write.
+
+`frontend/src/lib/ringfx.js` is a line-for-line port of the renderer, so every preview shows
+the frame the device draws. `frontend/test/ringfx-golden.txt` holds 548 frames both must
+reproduce: `npm test` checks the port, and CI's LED ring renderer job builds
+`satellite1_ring/test/ring_fx_core_test.cpp` on the host and checks the firmware's copy, plus
+Classic against the YAML lambdas it replaced. Change the math in both files, then regenerate the
+frames with `npm run golden`.
+
+| Endpoint | Parameters | Does |
+|---|---|---|
+| `GET /api/sat1/ring` | | The style, the preset it was copied from (`base`), the current moment and preview, the last drawn inputs (`in`), and each moment's animation (`m`) |
+| `POST /api/sat1/ring` | `style` | Switches the style |
+| `POST /api/sat1/ring` | `m`, `fx`, `cm`, `c`, `sp`, `br`, `dir`, `p` | Saves one moment; `c` is up to three comma-separated hex colors for `cm=own` |
+| `POST /api/sat1/ring/reset` | `m`, or `all=1` | Puts one moment, or all of them, back to the preset |
+| `POST /api/sat1/ring/preview` | `m`, `ms` (500-20000, default 6000), and optionally a draft as for a save | Plays a moment or a fixed signal on the ring; a real moment arriving cancels it |
+| `POST /api/sat1/ring/preview/stop` | | Ends a preview early |
+
 ## Add to home screen
 
 The app ships a web manifest, three PNG icons (192, 512 and a 180px apple-touch-icon) and the iOS
@@ -578,10 +713,12 @@ the app's dark background, so the home-screen icon, the splash and the app agree
 
 ## The routing and ducking selection
 
-The Config route's two trees write one selection that lives on the device, in NVS, and is read and
-written at `GET`/`POST /api/sat1/sel`. It stores whole areas by id, individually chosen players, and
-carve-outs from a whole area — so "the whole living room except the TV" is stored as an area plus one
-exclusion, and a speaker added to that area later is picked up without anyone revisiting the setting.
+The Audio page's speaker list writes one selection that lives on the device, in NVS, and is read and
+written at `GET`/`POST /api/sat1/sel`. It holds two lists, `routing` behind the Announce column and
+`duck` behind the Duck column, plus the `local` flag. Each list stores whole areas by id,
+individually chosen players, and carve-outs from a whole area — so "the whole living room except the
+TV" is stored as an area plus one exclusion, and a speaker added to that area later is picked up
+without anyone revisiting the setting.
 
 The two switches Home Assistant keeps are projections of that selection rather than peers of it, so
 there is nothing to keep in step. Both carry `restore_mode: DISABLED`, without which ESPHome acts on a
@@ -589,6 +726,162 @@ restored value at boot and the turn action writes a stale state into the store.
 
 This replaced a comma-separated text entity, and it is a breaking change with renamed and deleted
 entities. [TTS-Routing.md](TTS-Routing.md) has the upgrade notes.
+
+### The Audio page's layout
+
+Audio > Announcement Routing (`#/audio/announcement-routing`; plain `#/audio` lands here too).
+Audio > Equalizer is the next section.
+
+One card, **Announcement Routing**, with "Route assistant responses, announcements, timer rings and wake
+chimes to selected speakers" under the title (October 2026; until then routing and ducking were two
+cards, each with its own tree). The speaker's Channel select is on the Equalizer, under Built-in
+Speaker. While the Equalizer isn't listed (an XMOS without the EQ, or none heard from since boot) a
+Speaker card holding it stands beside the routing card instead, so it is never out of reach; without
+it the routing card takes the row.
+
+- **The levels**, together in one tinted panel at the top:
+  - **Announcement Volume** (`announcement_volume`, "Follow speaker volume" at 0). This device's own
+    level for responses, timers and chimes, so it never greys.
+  - **Remote Announcement Volume** (`remote_announcement_volume`, "Follow speaker volume" at 0),
+    greyed while nothing is ticked to Announce.
+  - **Remote Ducking Volume** (`duck_volume`, the `duck_area_volume` number; "Mute playback" at 0),
+    greyed while nothing is ticked to Duck and no speaker ticked to Announce is turned down to it. A
+    Sonos or Satellite1 ticked to Announce alone leaves it greyed, because those lower their own
+    music instead.
+- **The speaker list**, set slightly apart below the panel. A header row names the columns
+  (Speaker, Announce, Duck) and carries the ⓘ that explains them. Each area is a row with an
+  Announce and a Duck box that tick the whole area, and a count under its name ("Announce 1/10 ·
+  Duck 1/11"); the area this device sits in opens by default. Speakers with no area go under "No
+  Area Assigned". Ticking a speaker's Announce box locks its Duck box on, as described above.
+- **This device's own row** holds the "Announce on this device" setting in its Announce box, which
+  writes the selection's `local` flag. It is greyed, and shown ticked, while nothing else is ticked
+  to Announce, because a response with nowhere else to go always plays here. Its caption says what
+  that means now: "always answers when nothing else announces", "answers here too" or "answers only
+  on the speakers ticked". Its Duck box is always disabled: this device never ducks itself through
+  the list. If the payload has no row for this device (`selfGroup` returns `undefined`, as when Home
+  Assistant has not sent its media player), an "Announce on this device" switch takes its place
+  above the list.
+- **For speakers ticked to Announce**: **Remote Wake Chime**, **Remote Timer Ring** and **Remote
+  Echo Guard**, all greyed while nothing is ticked to Announce.
+
+The levels render before Home Assistant has sent any areas, so the sliders never disappear with the
+list. In each slider the reading sits on the label's line when both fit and drops under the label
+when they do not, so a long label is never squeezed; the slider takes the full width below.
+
+Every label is the entity's own name in Home Assistant, so the app and Home Assistant never disagree
+about what a setting is called. Two entities were renamed for it in October 2026: Duck Area Volume
+became **Remote Ducking Volume** and Remote Sync Guard became **Remote Echo Guard**. Their internal
+ids, and the app's keys for them (`duck_volume`, `remote_sync_guard`), stay as they were, because a
+page served by one firmware version reads the entity keys of devices on another through the device
+switcher. Announcement Volume keeps its name because peers find it by an entity id ending in
+`_announcement_volume`. [TTS-Routing.md](TTS-Routing.md) has what the renames do to Home Assistant.
+
+## The speaker EQ (Audio > Equalizer)
+
+Built October 2026 (plan file `speaker_dsp_equalizer_41c2d2e4`): a parametric EQ and a safety limiter
+for the speaker, run by the XMOS, set from `#/audio/equalizer`. The page is called Equalizer because
+more people know the word than "DSP"; the code and the API keep `dsp`.
+
+**Where the sound is shaped.** On the XMOS, tile 1, with lib_audio_dsp v1.5.1: in the speaker
+pipeline, just before the DAC, at 48 kHz, with the echo canceller's reference taken after the EQ, so the
+canceller hears what the speaker actually plays, curve and limiter included. The
+chip designs the filters itself (RBJ biquads, up to 16 sections a profile) and is the authority on
+headroom: a design whose gain at any point in the chain would pass +18 dB is rejected and the previous
+one keeps playing. Cuts run before boosts, a negative preamp before the filters and a positive one
+after, and a flat profile is bypassed bit-exact. The limiter runs whenever the profile's net response
+can exceed its ceiling. Resource 231's commands are in Satellite1-XMOS
+`docs/device-control-spi-protocol.md`.
+
+**What the ESP32 keeps** (`satellite1_dsp`). Everything is stored in flash and uploaded: two profiles,
+**Built-in Speaker** and **Line-out**, one per output, with the XMOS told which to play as the jack
+switches; the on/off switch; and up to eight user presets beside the built-ins ("Sat1.2 Smart Speaker
+(10/26)", the speaker's default, and "Flat", the line-out's). The speaker's default is the October
+2026 Music Assistant tuning at a +8 dB preamp, 2 dB below the export's own. A profile is a preamp;
+Bass, Midrange and Treble (shelves at 120 Hz and 8 kHz and a peak at 1 kHz, all Q 0.707 and ±9 dB,
+sent as the slot's first three records and counted against the 16 sections); up to eleven filters;
+and the limiter's ceiling, attack and release (−1 dBFS, 1 ms, 100 ms by default). Both
+profiles go to the XMOS on every connect, and a profile again after each edit to it, at most ten
+uploads a second while a slider moves. An upload counts once INFO shows the XMOS designed it (its
+design count moved on); one it did not take is re-sent twice and then held, reported as refused,
+until the next edit. A ten-second heartbeat re-sends what an XMOS that restarted without the ESP32
+seeing it go has lost. Flash is written three seconds after the last edit, and at once on a safe
+reboot.
+
+**When the page exists.** An XMOS without the EQ (an older release, or one chosen in the developer
+firmware picker) answers `GET_INFO` on resource 231 with an error, and is then sent nothing else.
+The check runs in Satellite1's connected hook — after boot, a
+reflash or a picker install, never on a timer, and at once for a component set up after the XMOS
+connected — and
+the state payload carries the answer as `dsp`: 1 supported, 0 not, 2 not known yet (no XMOS since
+boot); a firmware without the component sends no field, which reads as 0. The app asks again, at
+`/api/sat1/dsp/caps`, when `xmos_firmware` publishes a new version (`useDspSupport` in
+`src/lib/device.js`, the rule in `dspRecheckDue`, `src/lib/dsp.js`). Audio lists its two pages only
+on a 1; `#/audio/equalizer` goes on to Announcement Routing only on a definite 0, and waits through
+a 2.
+
+**The API**, all session-gated:
+
+- `GET /api/sat1/dsp`: the status, `caps` (the limits), both profiles as `p`, and `presets`
+  (built-ins first). `GET /api/sat1/dsp/live`: the status plus the XMOS's `info` and `stats`; asking
+  also keeps the ESP32 reading them every second for five seconds.
+  `GET /api/sat1/dsp/caps`: `{"dsp":N}` alone.
+- `POST /api/sat1/dsp`, form fields: `en=0|1`; `cmp=0|1`, hold-to-compare, which lapses on its own
+  15 seconds after the last renewal so a browser that goes away mid-hold cannot leave the EQ off; or
+  `out=0|1` with any of `pre`, `bass`, `mid`, `tre`, `lim`, `atk`, `rel`, `preset` and `f`, the filters as
+  `type,on,hz,db,q` joined by `;`. `en` and `cmp` take only `0` or `1`, and `preset` only `""` or a
+  name a preset could hold. Values outside what the XMOS accepts, or more than 16 sections, answer
+  400 and change nothing, the switches included; nothing is clamped.
+- `POST /api/sat1/dsp/preset`: `op=load|save|delete|rename|reset` with `name` and `out`. Built-in
+  names are reserved, names are 1 to 31 bytes of well-formed UTF-8 without control characters, `save`
+  stores the profile the device holds now, and `reset` puts the output's built-in default back.
+  `rename` takes the new name in `to` and is one step, so a failure leaves the preset as it was;
+  outputs on the preset follow it. Renamed onto another user preset, that one is replaced, as a
+  `save` over it would, and any output on it becomes Custom.
+
+**Basic and Advanced.** The page opens on Basic, which is what most people need: the bar (outputs,
+Channel, the EQ switch, Hold to hear it flat, and the preset menu with Revert once the output is
+Modified) and a Tone card with the curve, read-only, over the Bass, Midrange and Treble sliders.
+Its notes speak in sliders: too much boost says to turn one down, and a preset whose filters fill
+the chip points to Advanced. Advanced, described next, is the full editor. Basic | Advanced sits at
+the end of the title's row, or on its own line under the title on a phone. The choice is kept in
+this browser (`sat1.eq.view`, `eqView` in `src/lib/dsp.js`) and is never part of the URL, so
+switching doesn't navigate and a link opens whichever view was last chosen here. Both are views of
+the same state, so an edit in one shows in the other.
+
+**The page** (`src/components/audio/DspPage.tsx`, the graph in `EqGraph.tsx`, the maths in
+`src/lib/eq.js`). `eq.js` mirrors the XMOS design — same biquads, same section order, same +18 dB
+check, tested against coefficients from lib_audio_dsp's own Python — so the page can refuse an
+impossible edit before sending it and draw exactly what will play. The bar at the top picks the output
+being edited (the one playing is marked); under Built-in Speaker, the speaker's Channel
+(`speaker_channel`, the amplifier's select, which applies with the EQ off too); then the EQ switch,
+Hold to hear it flat, and the preset menu
+with Save, Save as, Revert, and More (Import, Export, Rename, Delete, Reset). Hold to hear it flat
+follows the pointer or Space/Enter; a screen reader's bare activation latches it instead, the next
+one letting go. Rename is the device's one-step `op=rename`. The graph draws each filter and the
+total without the preamp, so the handles sit on the curve; the preamp moves the limiter's line
+instead. Handles drag (frequency and gain), take Page Up/Down — or the wheel, once picked — for Q
+and arrow keys for fine steps, and a double-click on empty graph adds a peak. Each filter's colour
+comes from `--eq-c0`…`--eq-c11` in `styles/dsp.css`, darker on the light theme. The graph card's
+corner says Playing, Sending…, Refused or Saved for the output shown, and Ready for one that is in
+sync but not the one playing (or with the EQ off). Under the graph: the loudest point (between
+stages, when that is what breaks the +18 dB cap), the limiter's state ("Limiting now" from the live
+stats) and Auto preamp (lowers the preamp until the loudest point sits on the ceiling and no stage
+passes +18 dB). The 16-section budget has no meter: an edit that would need a seventeenth section is
+not made, and a note under the graph says so. Edits go out latest-wins with one request in flight, the
+two outputs taking turns, so a drag costs a handful of writes; one that doesn't get through is
+retried, backing off to every 5 s, until a newer edit replaces it, and a refused one reloads the
+device's copy once nothing else is on its way. A read that set out before an edit never puts the
+older profile back. Preset operations wait for pending edits to land first (up to 10 s). Import
+reads the text REW, Equalizer APO and Music Assistant export (`Preamp:` and `Filter N:` lines, comma
+decimals too) and says what it skipped or approximated; Export writes the same format, Bass and
+Treble as shelves and Midrange as a peak (each left out at 0 dB), 24 dB/oct cuts as two lines. On
+import, a shelf or peak at exactly one of the three tone controls' frequency and Q becomes that
+control. The Tone card has the three tone sliders, then the preamp. The banner over the page says
+when the audio chip is updating or not answering, and when the EQ switched itself off for want of
+time. Two independent columns once the page itself is 820 px wide (Advanced: the graph and filters
+left, the rest right; Basic: the Tone card left, the bar right), measured on the page rather than
+the window because the sidebar arrives at 1024 px; one list in reading order below that, with the
+bottom bar's Announcement Routing and Equalizer pills.
 
 ## Finished speaking detection, per wake word
 
@@ -749,6 +1042,96 @@ SSE id, so history and stream lines line up on uptime. A line held by both is ke
 stream's copy, and an uptime that steps backwards marks a reboot: the new boot's lines follow the old
 one's instead of being sorted in among them. The browser ring holds 5000 lines. The panel draws the
 newest 1500, with a Show earlier button above them, and the footer says how far back the lines go.
+
+## Developer tools
+
+Built October 2026 (plan file `developer_tools_page_8cdd6f32`) so the team can hear what the
+microphones hear while switching XMOS firmware, and share recordings of it.
+
+**The rule.** Everything here is for firmware built from `config/satellite1.dev.yaml`, and all of
+its YAML lives inline in that file: the XMOS firmware catalog and picker entities, the amplifier's
+`speaker_amp_id` and `amp_gain`/`line_out` keys, `mic_monitor:` and `sysmon:` under
+`satellite1_web_ui`. A release build compiles none of it — `USE_SAT1_MIC_MONITOR`,
+`USE_SAT1_SYSMON` and `USE_SAT1_WEB_UI_AMP` are absent from its `defines.h` — and the app hides
+Settings > Developer unless the state payload shows one of the tools (`src/lib/devtools.js`). The
+speaker's Channel select is the one amplifier control customers keep; it is on Audio > Equalizer,
+under Built-in Speaker.
+CI's `build-dev-firmware` job compiles the dev config on every push so it cannot rot unseen.
+
+**Mic monitor, device side** (`mic_monitor.h/.cpp`). A passive tap: it registers a data callback on
+`sat1_mics` and never starts or stops the microphone, so it hears exactly what the running pipeline
+hears and costs nothing when the microphone is off (the flags then say idle). Each 16 kHz stereo
+int32 frame becomes two int16 samples. Channel 0 is `q31 >> 16`, what `voice_assistant` receives.
+Channel 1 is `MicrophoneSource`'s conversion for `micro_wake_word`: `clamp((q31 >> 6) * gain, Q25)`
+then `>> 10`, with `wake_word_gain` set to the wake word's `gain_factor` (6). When the mute switch
+is on, both channels are written as zeros and flagged, so a recording never holds audio the person
+asked the device not to hear. Samples go into a 32,768-frame ring (128 KB, about two seconds) in
+PSRAM, allocated on the first listen and kept until reboot; the callback does nothing while nobody
+listens.
+
+`GET /api/sat1/mic` is one chunked `application/octet-stream` response that never ends. After the
+headers the handler takes the socket over the way `web_server`'s event stream does
+(`httpd_sess_set_send_override` plus a session context), then the main loop pumps every listener
+with non-blocking sends from an 8 KB PSRAM buffer: a 20-byte header (magic, sample index, frame
+count, frames dropped, flags, assistant phase, wake sequence and slot, the three wake word scores;
+the layout is in `src/lib/micframes.js`) and up to 2000 frames. A frame count of 0 is a keepalive,
+sent every 250 ms when there is nothing new. A reader that falls half a ring behind skips ahead and
+the skipped frames are counted as dropped; one that accepts nothing for five seconds is closed. A
+listener is freed only once httpd has called its free callback, because `httpd_sess_trigger_close`
+is asynchronous. The handler answers 409 past `max_listeners` (default 2, at most 3) and 503 when
+internal RAM is under 32 KB.
+
+Sockets: each listener holds one of `esp_http_server`'s seven for as long as it listens. A stream
+sends but never makes a new request, so under socket pressure the LRU purge closes it before
+anything else; the page reconnects with backoff (1, 2, 4, 8, then every 10 seconds).
+
+**Mic monitor, browser side** (`src/lib/micmon.js`). One stream per page, kept running while the
+person visits other pages (the Developer nav item shows a dot). Both channels are drawn as ten
+seconds of peak and RMS envelope with meters in dBFS; the Play select picks which one goes to the
+speakers. The page is served over plain HTTP, which is not a secure context, so AudioWorklet is
+unavailable: playback schedules `AudioBufferSource` nodes of 800 samples with a 200 ms jitter
+buffer, resampled when the browser refuses a 16 kHz buffer. A body that delivers nothing for three
+seconds is aborted and reconnected.
+
+Recording keeps both channels in the tab as Int16Array chunks, up to fifteen minutes (about 29 MB a
+channel). Missing audio becomes silence of the right length plus a marker, so the file's timeline is
+the room's: a sample-index jump (dropped frames), a reconnect (timed on the browser's clock), and
+a stretch of idle microphone such as an XMOS install (also the browser's clock, since the device's
+index stands still). Header changes add markers too: wake detections with their slot, assistant
+phases, the XMOS going away and back, the mute, and the XMOS version changing. Each channel downloads
+as a mono 16-bit WAV with the markers as `cue `/`labl` chunks and the device, firmware and XMOS
+version in `LIST/INFO`; "Both" is a store-only zip of the two (no compression: WAV barely
+compresses, and deflate in JS on a phone is slow).
+
+**Score lane.** `MwwRuntimeLoader` already samples each wake word track's highest probability every
+250 ms (`sample_high_water_`). `recent_score()` exposes the latest window per track, and a detection
+writes the firing score into it, because `notify_detection` drains the high-water mark. The lane
+draws the dashed cutoff only for a tuned word: the wake word payload carries no model default.
+
+**Logs from several devices** (`src/lib/multilog.js`). A snapshot, not a tail: Collect reads
+`/api/sat1/log` once from each ticked device — this one directly, the others signed in with the
+password Home Assistant holds — and merges by wall clock. Each device's uptime stamps are pinned to
+the browser's clock at the midpoint of that request, so the error bar is half its round trip; the
+download's header lists every device's round trip so nobody reads more precision into it than it
+has.
+
+**System monitor** (`sysmon.h/.cpp`). Every ten seconds the device records internal free, largest
+internal block, the internal low-water mark, PSRAM free and three flags (assistant running, XMOS not
+ready, mic monitor streaming) into 4320 slots: twelve hours, about 100 KB of PSRAM, allocated at
+boot so the history exists before anyone opens the page. `GET /api/sat1/sysmon?boot=&since=` pages
+through it 720 samples at a time; `tasks=1` adds every FreeRTOS task's priority, state and stack
+high-water mark. The task table needs `CONFIG_FREERTOS_USE_TRACE_FACILITY`, which the component's
+codegen sets whenever `sysmon:` is present, so it is not repeated in `dev.yaml`.
+
+**Speaker EQ** (`src/components/settings/SpeakerEq.tsx`). The XMOS speaker EQ's own report, read
+from `GET /api/sat1/dsp/live` once a second: bypass reason, both slots, time per frame, overruns and
+watchdog trips, limiter activity, designs and tile 1 heap. It needs nothing in `dev.yaml`: the card
+shows whenever the state payload has a `dsp` field, but since release builds carry the EQ too, it
+never makes the page appear on its own.
+
+**Costs.** By construction: 128 KB of PSRAM for the mic ring once someone has listened, 8 KB of
+PSRAM per listener, about 100 KB of PSRAM for the system monitor, and no internal RAM beyond the
+objects themselves. A WiFi dev build compiles to 44.4% static RAM and 3,895,135 bytes of flash.
 
 ## Rebuilding and conventions
 

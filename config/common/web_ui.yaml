@@ -226,40 +226,52 @@ satellite1_web_ui:
   # playing.
   media_player_id: external_media_player
 
-  # The speaker amplifier, for GET /api/sat1/amp - the Diagnostics route's Speaker amplifier card. An
-  # audio_dac is not an entity, so the TAS2780's power mode (High gain from a USB-PD supply, Low
-  # gain from 5 V) and its digital volume level ride neither /events nor the entity REST API; the
-  # endpoint is the only window the app has onto them. The analog gain knob is different - it IS an
-  # entity (amp_gain_level in common/speaker.yaml, mapped under numbers: below), because it is a
-  # setting to persist rather than a reading to poll.
-  speaker_amp_id: speaker_dac
+  # The LED ring styles (common/led_ring.yaml), behind the LED Ring page: GET/POST /api/sat1/ring,
+  # /api/sat1/ring/reset and /api/sat1/ring/preview[/stop]. The style itself is also the
+  # ring_style select below, and the moment the ring shows is the ring_moment text sensor, so the
+  # page follows Home Assistant and the device over /events.
+  ring_id: ring_fx
+
+  # The TAS2780 amplifier card (GET /api/sat1/amp, the analog gain and line-out keys) is developer
+  # tooling: config/satellite1.dev.yaml wires it onto Settings > Developer. The speaker channel
+  # select below stays a customer control on the Audio tab.
 
   # The sounds the routing feature mirrors to third-party speakers, served at
   # GET /api/sat1/sounds/<name> straight from the audio_file bytes in flash (session-gate exempt;
   # the fetcher is a Sonos or Cast with no session). The keys are the URL tails the calls in
   # tts_routing.yaml render - change one and the other must move with it. All files are MP3 in
   # media_player.yaml because a Sonos AudioClip accepts MP3 and WAV only. stop_clip is the Sonos
-  # stop preempt: a new clip interrupts a playing one, which is the only stop a clip has.
+  # stop preempt: a new clip interrupts a playing one, which is the only stop a clip has. The ring
+  # goes out as timer_finished_remote, the local ring's sound with a silent tail (media_player.yaml).
+  # hold_silence and wake_word_triggered_hold are the routed-speaker hold's clips, fetched here by a
+  # Sonos only - Satellite1 peers play the same files from their own flash.
   sounds:
-    timer_finished.mp3: timer_finished_sound
+    timer_finished_remote.mp3: timer_finished_remote_sound
     wake_word_triggered.mp3: wake_word_triggered_sound
+    wake_word_triggered_hold.mp3: wake_word_triggered_hold_sound
+    hold_silence.mp3: hold_silence_sound
     stop_clip.mp3: stop_clip_sound
 
   # Whether a voice approval could be heard right now, read when a pairing window opens. Only the
   # hardware mute slider counts: it is the one mute software cannot clear, so it alone forces a
-  # button-only window (and the login page says so, from the poll's hw flag). A software mute is no
-  # obstacle - the window-open handler below lifts it before announcing, on the reasoning that a
-  # person asking for voice sign-in has answered the question of whether the device may speak.
-  login_mic_available: !lambda "return !id(btn_left).state;"
+  # button-only window (and the login page says so, from the poll's hw flag). A slider whose
+  # position is not currently known counts as engaged. A software mute is no obstacle - the
+  # window-open handler below lifts it before announcing, on the reasoning that a person asking for
+  # voice sign-in has answered the question of whether the device may speak.
+  login_mic_available: !lambda return id(satellite1_id).microphone_mute().local_capture_allowed(millis());
 
   # The software mute the tune-time held mute drives (POST /api/sat1/mutehold): while a Wake Word
   # Tuner runs against ANOTHER Satellite1 in this device's area, that tuner's browser holds this
   # device muted - the customer is saying the wake word over and over, and the neighbours must not
-  # answer - and the switch is put back the way the hold found it when the session ends, or when
+  # answer - and the mute is put back the way the hold found it when the session ends, or when
   # the hold's 60s TTL lapses because the browser vanished. A hand on this device outranks the
-  # hold: unmuting here (or from Home Assistant) mid-session cancels it for good. The hardware
-  # mute slider is unaffected either way - this switch's own turn_on already defers to it.
+  # hold: unmuting here (or from Home Assistant) mid-session cancels it for good.
   mute_switch: master_mute_switch
+  # The switch's state also follows the hardware slider, so the hold works on the software choice
+  # alone - otherwise moving the slider mid-session would read as that manual unmute. The hold's
+  # mute is not saved, and putting it back is not refused while the slider is engaged.
+  mute_intent: !lambda return id(satellite1_id).microphone_mute().software_muted();
+  set_mute_intent: !lambda id(master_mute_switch).set_transient(muted);
 
   # The pairing window opening: LED on, then the mode's announcement. The scripts live in
   # common/web_ui_login.yaml. `mode` is button/code/seq; `secret` is the spoken code's digits, or
@@ -282,17 +294,18 @@ satellite1_web_ui:
     # A software mute would swallow the announcement and the reply alike. Lift it for voice
     # windows - and remember that we did, because the close handler below puts it back. The mute
     # was somebody's deliberate choice, and the request that opens a window is unauthenticated by
-    # design, so the lift must never outlive the window it served. The guard inside turn_on/
-    # turn_off means this cannot fight the hardware slider (and a hardware-muted device never
-    # reaches here with a voice mode anyway).
+    # design, so the lift must never outlive the window it served: it is not saved, so even a
+    # reboot mid-window comes back muted. A hardware-muted device never reaches here with a voice
+    # mode, and the slider keeps the microphones muted by itself if it is engaged mid-window.
     - if:
         condition:
           and:
             - lambda: return mode != "button";
-            - switch.is_on: master_mute_switch
+            - lambda: return id(satellite1_id).microphone_mute().software_muted();
         then:
-          - lambda: 'id(login_lifted_mute) = true;'
-          - switch.turn_off: master_mute_switch
+          - lambda: |-
+              id(login_lifted_mute) = true;
+              id(master_mute_switch).set_transient(false);
     - if:
         condition:
           lambda: return mode == "code";
@@ -330,8 +343,9 @@ satellite1_web_ui:
         condition:
           lambda: 'return id(login_lifted_mute);'
         then:
-          - lambda: 'id(login_lifted_mute) = false;'
-          - switch.turn_on: master_mute_switch
+          - lambda: |-
+              id(login_lifted_mute) = false;
+              id(master_mute_switch).set_transient(true);
     # Approval and cancel both silence the sign-in's own audio, immediately and everywhere (owner
     # requests, September 23 2026: the prompt kept reciting the code after the button press, and
     # the start_conversation turn then opened its listen phase - which reads as the press having
@@ -444,12 +458,9 @@ satellite1_web_ui:
       temp_offset: temp_offset_ui
       humidity_offset: humidity_offset_ui
       lux_offset: lux_offset_ui
-      voice_override: tts_volume
-      remote_tts_volume: remote_tts_volume
+      announcement_volume: announcement_volume
+      remote_announcement_volume: remote_announcement_volume
       duck_volume: duck_area_volume
-      # The TAS2780's analog output level, on the Speaker amplifier card beside the read-only amp
-      # state GET /api/sat1/amp reports. The index (0-20) travels; the app renders it as dBV.
-      amp_gain: amp_gain_level
 
     # The routing target list is not here. It used to be a text entity the tree wrote a
     # comma-separated list into on every change - and that entity caps at 255 characters, which is
@@ -485,8 +496,8 @@ satellite1_web_ui:
       # visibly the same control rather than two that happen to agree.
       #
       # tts_mute_local and duck_tts_targets were here. Both entities are deleted; the first is now the
-      # app's "Local Speaker" row and the second is unconditional.
-      tts_routing: tts_routing_enabled
+      # app's "Announce on this device" box and the second is unconditional.
+      route_announcements: route_announcements_area
       remote_wake_chime: remote_wake_chime
       remote_timer_ring: remote_timer_ring
       duck_area: duck_area_players
@@ -499,13 +510,14 @@ satellite1_web_ui:
       speaker_channel: tas_mode_select
       # wake_sensitivity is gone from this map: the app's sensitivity is per wake word now, through
       # the loader's slot endpoints, and the two Home Assistant selects read the same loader state.
-      # The mic-guard length, on the Audio routing card under the toggles it belongs with.
+      # The mic-guard length, on the Announcement Routing card under the toggles it belongs with.
       remote_sync_guard: remote_sync_guard
       # Finished speaking detection for the Primary and Secondary wake word slots - the app's
       # per-wake-word setting. Written like any other device select; `unset` leaves Home Assistant's
       # value alone.
       fsd_1: fsd_primary
       fsd_2: fsd_secondary
+      ring_style: ring_style_select
 
     buttons:
       restart: restart_button
@@ -526,7 +538,6 @@ satellite1_web_ui:
       btn_down: btn_down
       btn_mute: btn_left
       btn_action: btn_action
-      line_out: line_out_sensor
       # Whether the stop model is running right now, published by the stop_word_arm/disarm wrapper
       # scripts (voice_assistant.yaml). The stop_word switch above is the preference; this is the
       # runtime truth, and the Wake Words card's "Listening"/"Paused" label is their difference.
@@ -540,8 +551,9 @@ satellite1_web_ui:
       # state. Presence itself comes from "Radar Target", which satellite1_radar registers at runtime
       # from a C++ literal shared by both handlers, so it has no id to map and does not need one.
       radar_module: radar_detected_text
-      remote_tts_status: tts_routing_status
+      remote_announcement_status: remote_announcement_status
       ask_status: web_ui_ask_status
+      ring_moment: ring_moment_text
 
     events:
       action_button: action_button_press_event

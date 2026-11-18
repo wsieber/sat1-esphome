@@ -23,7 +23,8 @@ export const Caret = ({
 
 /**
  * `forceOpen` reopens a collapsed card - what a toast's tap intent uses so it never lands on a
- * folded one. `id` is the anchor the intent scrolls to.
+ * folded one. `id` is the anchor the intent scrolls to. `onToggle` hears each open and close, for
+ * a parent that remounts the card (a layout change) and passes the state back as `defaultOpen`.
  */
 export function DxCard({
   title,
@@ -31,6 +32,7 @@ export function DxCard({
   collapsible = false,
   defaultOpen = true,
   forceOpen = false,
+  onToggle,
   hint,
   right,
   id
@@ -40,6 +42,7 @@ export function DxCard({
   collapsible?: boolean;
   defaultOpen?: boolean;
   forceOpen?: boolean;
+  onToggle?: (open: boolean) => void;
   hint?: string;
   right?: React.ReactNode;
   id?: string;
@@ -49,10 +52,14 @@ export function DxCard({
   useEffect(() => {
     if (forceOpen) setOpen(true);
   }, [forceOpen]);
+  const toggle = () => {
+    setOpen(!open);
+    onToggle?.(!open);
+  };
   // The whole head is the mouse target; the title's button is the keyboard and screen-reader one,
   // its click bubbling up here. The hint button stops its own click.
   return <div className="dx-card" id={id}>
-      <div className={`dx-card-head${collapsible ? ' clickable' : ''}`} onClick={collapsible ? () => setOpen(v => !v) : undefined}>
+      <div className={`dx-card-head${collapsible ? ' clickable' : ''}`} onClick={collapsible ? toggle : undefined}>
         <h2 className="dx-card-title" style={{
         margin: 0
       }}>{collapsible ? <button type="button" className="dx-card-toggle" aria-expanded={open} aria-controls={bodyId}>{title}</button> : title}</h2>
@@ -154,6 +161,7 @@ export function DxConfirmDialog({
   title,
   body,
   confirmLabel,
+  cancelLabel = TEXT.cancel,
   danger = false,
   returnFocus,
   onCancel,
@@ -163,6 +171,7 @@ export function DxConfirmDialog({
   title: string;
   body: string;
   confirmLabel: string;
+  cancelLabel?: string;
   danger?: boolean;
   returnFocus?: React.RefObject<HTMLElement>;
   onCancel: () => void;
@@ -173,7 +182,7 @@ export function DxConfirmDialog({
         <p className="dx-modal-title">{title}</p>
         <p className="dx-modal-body">{body}</p>
         <div className="dx-modal-actions">
-          <button ref={cancel} className="dx-btn" onClick={onCancel}>{TEXT.cancel}</button>
+          <button ref={cancel} className="dx-btn" onClick={onCancel}>{cancelLabel}</button>
           <button className={`dx-btn solid${danger ? ' danger' : ''}`} onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </Drawer>}</Presence>;
@@ -267,7 +276,8 @@ export function saveBlob(blob: Blob, name: string) {
   a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(url);
+  // Some browsers read a large blob after click() returns; revoking at once can save an empty file.
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 /** "Copied" for two seconds after a successful copy. */

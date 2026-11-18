@@ -38,6 +38,7 @@ packages:
         - delay: 2s
 
   base: !include satellite1.base.yaml
+  dsp: !include common/dsp.yaml
   wifi: ${ wifi_config if network == "wifi" or network == "unified" else {} }
   ethernet: ${ ethernet_config if network == "ethernet" or network == "unified" else {} }
 
@@ -115,20 +116,28 @@ external_components:
       - extram_bss
       - fusb302b
       - i2s_audio
+      - ltr_als_ps
       - memory_flasher
       - micro_decoder_override
+      # Vendored from the pinned ESPHome release for one addition (a per-input gain, so music and
+      # announcements can sit at different levels with a real zero). See its FPH_VENDOR.md for the
+      # re-sync procedure and the upstream exit plan.
+      - mixer
       # Vendored from the pinned ESPHome release for one ~10-line addition (the high-water
       # register the wake word margin telemetry rides). See its FPH_VENDOR.md for the re-sync
       # procedure and the upstream exit plan.
       - micro_wake_word
       - mww_runtime_loader
       - satellite1
+      - satellite1_dsp
       - satellite1_radar
+      - satellite1_ring
       - satellite1_web_ui
       - ethernet
+      - speaker_source
       - tas2780
       # Vendored from the pinned ESPHome release for one public getter (the continue-conversation
-      # flag the remote sync guard gates on). See its FPH_VENDOR.md for the re-sync procedure and
+      # flag the remote echo guard gates on). See its FPH_VENDOR.md for the re-sync procedure and
       # the upstream exit plan.
       - voice_assistant
       - wake_capture

@@ -13,9 +13,19 @@ substitutions:
   component_name: Core
 
   esp32_fw_version: dev
-  xmos_fw_version: "v1.1.0-alpha.0"
-  # Production configurations enable this; dashboard builds only wait for a responding XMOS.
-  xmos_auto_flash_on_boot: "false"
+  # A pre-release of Satellite1-XMOS feature/speaker_eq_dsp_4y1x: the first XMOS with the speaker
+  # EQ the Audio > Equalizer page drives. Swap in a real release once that branch ships. Dev
+  # pre-releases rank below the minimum supported XMOS version, so xflash sets skip_version_check.
+  xmos_fw_version: "v1.1.0-dev.25"
+  # Empty embeds the GitHub release named by xmos_fw_version. To embed a local XMOS build instead,
+  # pass absolute paths on the command line along with its version:
+  #   esphome -s xmos_fw_version v1.1.0-dev.8 -s xmos_fw_image /abs/x.factory.bin \
+  #           -s xmos_fw_md5 /abs/x.factory.md5 compile config/satellite1.dev.yaml
+  xmos_fw_image: ""
+  xmos_fw_md5: ""
+  # Dashboard/custom builds also flash the embedded XMOS image automatically.
+  # Override to "false" for manual flashing; minimum-version validation still applies.
+  xmos_auto_flash_on_boot: "true"
 
 globals:
   # Global initialisation variable. Initialized to true and set to false once everything is connected. Only used to have a smooth "plugging" experience
@@ -33,16 +43,7 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
-  # Audio outputs remain muted until the XMOS is responding after any required flash attempt.
-  - id: xmos_audio_ready
-    type: bool
-    restore_value: no
-    initial_value: 'false'
   - id: xmos_audio_shutdown_complete
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-  - id: audio_output_speaker_requested
     type: bool
     restore_value: no
     initial_value: 'false'
@@ -51,7 +52,7 @@ esphome:
   name: ${node_name}
   name_add_mac_suffix: true
   friendly_name: ${friendly_name}
-  min_version: 2026.9.0
+  min_version: 2026.10.2
 
   project:
     name: ${company_name}.${project_name}
@@ -65,13 +66,10 @@ esphome:
         - script.execute: control_leds
         - delay: 1s
 
-        - lambda: id(audio_output_speaker_requested) = id(dac_proxy).active_dac == 0;
         - script.execute: refresh_audio_output
 
-        # The restored DAC level is safe on its own, since DACProxy persists the media volume rather
-        # than any level the reconciler raised it to. What is missing is the raise that goes with a
-        # Voice Override, because the floor is never persisted - so derive the gain state now that
-        # the DAC is set up and the slider has restored.
+        # DACProxy restores the last level, but both mixer gains start at unity, so derive the
+        # whole gain state now that the DAC is set up and the Announcement Volume has restored.
         - script.execute: audio_gain_reconcile
 
         # If after 10 minutes, the device is still initializing (It did not yet connect to Home Assistant), turn off the init_in_progress variable and run the script to refresh the LED status
@@ -99,7 +97,7 @@ packages:
   spk: !include common/speaker.yaml
   mp: !include common/media_player.yaml
   va: !include common/voice_assistant.yaml
-  # An inline package purely for where it sits: handing the Remote TTS Targets their volumes back has
+  # An inline package purely for where it sits: handing the routing targets their volumes back has
   # to reach Home Assistant before the calls that play the response on them, and ESPHome runs a
   # trigger's automations in merge order - so this must be listed ahead of tts_routing, which owns
   # the other blocks on both triggers below.
@@ -108,7 +106,7 @@ packages:
   # and clears its own flag, so being called twice hands the volumes back once; the empty-string test
   # keeps the intent-progress events that carry no URL from restarting it. Whether this is the right
   # moment is the script's own decision - see area_ducking.yaml.
-  duck_tts_targets_release_first:
+  duck_announce_targets_release_first:
     voice_assistant:
       on_intent_progress:
         - if:
@@ -131,7 +129,8 @@ packages:
   # After web_ui, which declares the component this calls into, and after area_ducking, whose
   # self_area_jinja it shares so the app and ducking cannot disagree about this device's area.
   web_ui_ha: !include common/web_ui_ha.yaml
-  # After web_ui_ha, whose rung global and connect gating it rides. The media footer's Music
+  # After web_ui_ha, whose rung global and connect gating it rides, and after area_ducking,
+  # whose self_area_jinja it opens with for this device's name. The media footer's Music
   # Assistant half: the group-members sync and the relayed commands.
   web_ui_media: !include common/web_ui_media.yaml
   # The Home page's orb tap and typed messages, and the press-to-talk start the action button
@@ -144,7 +143,6 @@ packages:
 
   ## OPTIONAL COMPONENTS
   # debug: !include common/debug.yaml
-  # developer: !include common/developer.yaml
 
 fusb302b:
   id: pd_fusb302b
@@ -158,11 +156,11 @@ fusb302b:
       - text_sensor.template.publish:
           id: pd_state_text
           state: !lambda 'return id(pd_fusb302b).contract;'
-      - script.execute: refresh_audio_output
+      - lambda: id(dac_proxy).notify_supply_changed();
 
   on_disconnect:
     then:
-      - script.execute: refresh_audio_output
+      - lambda: id(dac_proxy).notify_supply_changed();
 
 http_request:
 
@@ -180,10 +178,11 @@ satellite1:
   data_rate: 8000000
   spi_mode: MODE3
   xmos_rst_pin: GPIO4
+  # Every connection waits for the product firmware-update decision below.
+  audio_startup_check: true
 
   on_xmos_no_response:
     then:
-      - lambda: id(xmos_audio_ready) = false;
       - text_sensor.template.publish:
           id: xmos_firmware_version_text
           state: !lambda 'return id(satellite1_id).status_string();'
@@ -199,7 +198,6 @@ satellite1:
 
   on_xmos_connected:
     then:
-      - lambda: id(xmos_audio_ready) = false;
       - text_sensor.template.publish:
           id: xmos_firmware_version_text
           state: !lambda 'return id(satellite1_id).status_string();'
@@ -231,21 +229,26 @@ satellite1:
                     return id(satellite1_id).is_xmos_connected() && !id(xflash).in_progress() &&
                            !id(xflash).boot_flash_pending();
                 then:
-                  - lambda: id(xmos_audio_ready) = true;
+                  - lambda: |-
+                      id(satellite1_id).set_audio_inhibited(satellite1::AudioInhibit::STARTUP_CHECK, false);
                   - script.execute: refresh_audio_output
                   - script.execute: start_micro_wake_word
 
 memory_flasher:
   - platform: satellite1
     id: xflash
+    # The embedded v1.1.0-dev.25 ranks below the v1.1.0-alpha.0 minimum. Drop this once
+    # xmos_fw_version names an alpha or later release.
+    skip_version_check: true
     embed_flash_image:
       image_version: ${xmos_fw_version}
-      image_file: https://github.com/FutureProofHomes/Satellite1-XMOS/releases/download/${xmos_fw_version}/satellite1_xmos.factory.bin
-      md5_file: https://github.com/FutureProofHomes/Satellite1-XMOS/releases/download/${xmos_fw_version}/satellite1_xmos.factory.md5
+      image_file: ${ xmos_fw_image or "https://github.com/FutureProofHomes/Satellite1-XMOS/releases/download/" ~ xmos_fw_version ~ "/satellite1_xmos.factory.bin" }
+      md5_file: ${ xmos_fw_md5 or "https://github.com/FutureProofHomes/Satellite1-XMOS/releases/download/" ~ xmos_fw_version ~ "/satellite1_xmos.factory.md5" }
 
     on_flashing_start:
       then:
-        - lambda: id(xmos_audio_ready) = false;
+        - lambda: |-
+            id(satellite1_id).set_audio_inhibited(satellite1::AudioInhibit::FLASHING, true);
         - text_sensor.template.publish:
             id: xmos_firmware_version_text
             state: "Flashing... (0%)"
@@ -263,6 +266,7 @@ memory_flasher:
 
     on_flashing_success:
       then:
+        - lambda: id(satellite1_id).set_audio_inhibited(satellite1::AudioInhibit::FLASHING, false);
         - logger.log: "success called"
         - text_sensor.template.publish:
             id: xmos_firmware_version_text
@@ -273,6 +277,7 @@ memory_flasher:
 
     on_flashing_failed:
       then:
+        - lambda: id(satellite1_id).set_audio_inhibited(satellite1::AudioInhibit::FLASHING, false);
         - logger.log: "failed called"
         - text_sensor.template.publish:
             id: xmos_firmware_version_text

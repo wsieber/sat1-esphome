@@ -1,4 +1,5 @@
 substitutions:
+  physical_volume_step: "0.05"
   jack_connected_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/jack_connected.flac
   jack_disconnected_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/jack_disconnected.flac
   mute_switch_on_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/mute_switch_on.flac
@@ -17,23 +18,44 @@ substitutions:
   # costs ~2% extra flash. The local mono announcement pipeline plays them unchanged - the decode
   # chain carries the file's own channel count and the mixer maps it onto its 2-channel output.
   # flac=what's up doc; wav=greetings earthlings; mp3=original
-  timer_finished_sound_file: sounds/timer_finished.mp3
-  wake_word_triggered_sound_file: sounds/yo.flac
+  wake_word_triggered_sound_file: ../sounds/yo.flac
   # Time-of-day wake greetings, picked in voice_assistant.yaml by the hour on ha_time. The plain
   # wake chime above still plays until the clock has synced after boot. The _f set (female voice)
   # plays for the secondary wake word slot, the other set for the primary.
-  wake_good_morning_sound_file: sounds/morning.mp3
-  wake_good_afternoon_sound_file: sounds/afternoon.mp3
-  wake_good_evening_sound_file: sounds/evening.mp3
-  wake_good_morning_f_sound_file: sounds/morning_f.mp3
-  wake_good_afternoon_f_sound_file: sounds/afternoon_f.mp3
-  wake_good_evening_f_sound_file: sounds/evening_f.mp3
+  wake_good_morning_sound_file: ../sounds/morning.mp3
+  wake_good_afternoon_sound_file: ../sounds/afternoon.mp3
+  wake_good_evening_sound_file: ../sounds/evening.mp3
+  wake_good_morning_f_sound_file: ../sounds/morning_f.mp3
+  wake_good_afternoon_f_sound_file: ../sounds/afternoon_f.mp3
+  wake_good_evening_f_sound_file: ../sounds/evening_f.mp3
+  #
+  # The "../" makes these paths resolve against this file, not the main config: a dashboard
+  # build's main config lives outside the repo, where a bare "sounds/" finds nothing. ESPHome
+  # falls back to the declaring file's directory when the main-config lookup misses.
+  timer_finished_sound_file: ../sounds/timer_finished.mp3
+  # The mirrored ring's clip: timer_finished.mp3's frames unchanged, then 2.5s of digital silence,
+  # 5.28s in all. Longer than the ring loop's resend interval on purpose, so each re-fire arrives
+  # while a clip is still playing rather than after one ended: no target goes idle between rings,
+  # which is what keeps its music ducked (and a peer's stop word armed) for the whole ring. Nothing
+  # plays it locally.
+  timer_finished_remote_sound_file: ../sounds/timer_finished_remote.mp3
+  # The routed-speaker hold's two clips (interaction_hold_loop in tts_routing.yaml), both 5.28s for
+  # the same reason as the ring's: longer than the 3.5s resend, so each re-fire replaces a clip still
+  # playing and the speaker stays ducked from the wake word to the answer. A peer plays them from
+  # its own flash, a Sonos fetches them from this device; nothing plays them locally.
+  #
+  # hold_silence opens with ~0.1s of pink noise peaking near -75 dBFS, far below audibility, then
+  # digital silence - pure silence is what the stop clip below found a Sonos would not register.
+  # wake_word_triggered_hold is the wake chime's frames unchanged plus silence, so the chime is the
+  # first hold clip. The silence in both is 32 kbps, which keeps each under 35KB.
+  hold_silence_sound_file: ../sounds/hold_silence.mp3
+  wake_word_triggered_hold_sound_file: ../sounds/wake_word_triggered_hold.mp3
   # ~0.4s faint fading 550 Hz tone. The Sonos stop preempt in tts_routing.yaml: a playing
   # AudioClip cannot be cancelled through Home Assistant, but a new LOW-priority clip interrupts
   # a playing LOW clip at any time, so announcing this IS the stop. Deliberately not digital
   # silence - a field-tested pure-silence MP3 failed to register as a clip - and quiet enough to
   # read as an acknowledgment, not an announcement. Nothing plays it locally.
-  stop_clip_sound_file: sounds/stop_clip.mp3
+  stop_clip_sound_file: ../sounds/stop_clip.mp3
   factory_reset_initiated_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/factory_reset_initiated.mp3
   factory_reset_cancelled_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/factory_reset_cancelled.mp3
   factory_reset_confirmed_sound_file: https://fph-firmware-assets.s3.us-east-1.amazonaws.com/sounds/factory_reset_confirmed.mp3
@@ -59,6 +81,8 @@ audio_file:
     file: ${mute_switch_off_sound_file}
   - id: timer_finished_sound
     file: ${timer_finished_sound_file}
+  - id: timer_finished_remote_sound
+    file: ${timer_finished_remote_sound_file}
   - id: wake_word_triggered_sound
     file: ${wake_word_triggered_sound_file}
   - id: wake_good_morning_sound
@@ -74,7 +98,11 @@ audio_file:
   - id: wake_good_evening_f_sound
     file: ${wake_good_evening_f_sound_file}
   - id: communicator_page_sound
-    file: sounds/communicator_page.mp3
+    file: ../sounds/communicator_page.mp3
+  - id: hold_silence_sound
+    file: ${hold_silence_sound_file}
+  - id: wake_word_triggered_hold_sound
+    file: ${wake_word_triggered_hold_sound_file}
   - id: stop_clip_sound
     file: ${stop_clip_sound_file}
   - id: center_button_press_sound
@@ -87,12 +115,12 @@ audio_file:
     file: ${center_button_long_press_sound_file}
   # A fifth of a second of true silence, 8kHz mono, ~3KB of flash (0.2s granularity replaced the
   # original 0.5s clip when the whole guard scale moved - owner decision, September 26 2026). The
-  # remote sync guard in tts_routing.yaml enqueues it 1-10 times behind a routed response so the
+  # remote echo guard in tts_routing.yaml enqueues it 1-10 times behind a routed response so the
   # announcement pipeline stays in ANNOUNCING past the remote targets' playback skew - which is
   # the one lever YAML has over when the assistant reopens the microphone. See tts_routing.yaml
   # for why a clip and not a delay.
   - id: routing_guard_silence_sound
-    file: sounds/routing_guard_silence.wav
+    file: ../sounds/routing_guard_silence.wav
 
 media_source:
   - platform: audio_file
@@ -108,8 +136,9 @@ media_player:
   - platform: speaker_source
     id: external_media_player
     name: Media Player
-    volume_increment: 0.05
-    volume_min: 0.1
+    volume_increment: ${physical_volume_step}
+    volume_state: audio_volume_state
+    volume_min: 0.0
     volume_max: 1.0
     announcement_pipeline:
       speaker: announcement_resampling_speaker
@@ -127,14 +156,17 @@ media_player:
       sources:
         - http_media_source
 
+    # Volume and mute travel down the speaker chain to DACProxy, which records them for route
+    # changes but drives the DAC from the reconciler's level: the reconciler alone turns them into
+    # the music gain and the DAC level, so every change has to reach it.
     on_mute:
       - script.execute: control_leds
+      - script.execute: audio_gain_reconcile
     on_unmute:
       - script.execute: control_leds
+      - script.execute: audio_gain_reconcile
     on_volume:
       - script.execute: control_leds
-      # The media player writes the new volume straight to the DAC on its way down the
-      # speaker chain, so re-derive the whole gain state against it.
       - script.execute: audio_gain_reconcile
     # Duck the media channel while an announcement plays
     on_announcement:
@@ -158,7 +190,8 @@ script:
       # A priority sound must not stop the announcement first: the play below already replaces it,
       # and a media_player.stop followed by a play skips the new sound (ESPHome 2026.9 queues a
       # playlist advance behind it) and, landing in a chime's first few milliseconds, can wedge the
-      # announcement speaker until reboot. config/common/audio_race_test.yaml reproduces both.
+      # announcement speaker until reboot. The harness that reproduced both is in git history:
+      # git show 797a60c:config/common/audio_race_test.yaml
       - lambda: |-
           if ( (id(external_media_player).state != media_player::MediaPlayerState::MEDIA_PLAYER_STATE_ANNOUNCING ) || priority) {
             id(external_media_player)
@@ -168,7 +201,7 @@ script:
               .perform();
           }
 
-  # Script to increased/decreased volume
+  # Mute at the bottom step without losing the output's last audible volume.
   - id: control_volume
     mode: restart
     parameters:
@@ -179,11 +212,30 @@ script:
           condition:
             lambda: return increase_volume;
           then:
-            - media_player.volume_up:
-                id: external_media_player
+            - if:
+                condition:
+                  media_player.is_muted: external_media_player
+                then:
+                  - media_player.unmute:
+                      id: external_media_player
+                else:
+                  - media_player.volume_up:
+                      id: external_media_player
           else:
-            - media_player.volume_down:
-                id: external_media_player
+            - if:
+                condition:
+                  lambda: |-
+                    return id(external_media_player).volume -
+                           ${physical_volume_step} > 0.000001f;
+                then:
+                  - media_player.volume_down:
+                      id: external_media_player
+                  - media_player.unmute:
+                      id: external_media_player
+                else:
+                  - media_player.mute:
+                      id: external_media_player
+                  - lambda: id(volume_buttons_touched) = false;
       - script.execute: control_leds
       - delay: 2s
       - lambda: id(volume_buttons_touched) = false;

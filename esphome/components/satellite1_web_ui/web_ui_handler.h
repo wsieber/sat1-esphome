@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <string>
 #include <vector>
@@ -41,6 +42,14 @@
 #include "esphome/components/tas2780/tas2780.h"
 #endif
 
+#ifdef USE_SAT1_WEB_UI_RING
+#include "esphome/components/satellite1_ring/ring_fx.h"
+#endif
+
+#ifdef USE_SAT1_WEB_UI_DSP
+#include "esphome/components/satellite1_dsp/satellite1_dsp.h"
+#endif
+
 #include "esphome/core/entity_base.h"
 // For millis_64() in wake_test_active() - the 64-bit clock every deadline here compares against.
 #include "esphome/core/hal.h"
@@ -51,7 +60,9 @@
 #include "esphome/components/web_server_base/web_server_base.h"
 
 #include "log_history.h"
+#include "mic_monitor.h"
 #include "selection.h"
+#include "sysmon.h"
 
 namespace esphome {
 namespace satellite1_web_ui {
@@ -385,7 +396,7 @@ class WebUIHandler : public AsyncWebHandler {
   /// What tts_routing's probe concluded about the "Allow the device to perform Home Assistant
   /// actions" checkbox: 0 unknown, 1 allowed, 2 blocked (the checkbox is off), 3 unverifiable
   /// (Home Assistant predates 2025.12 and answers no action call). Pushed from
-  /// tts_routing_status_publish - the one script every verdict transition already runs through -
+  /// remote_announcement_status_publish - the one script every verdict transition already runs through -
   /// and served as `actions` on /api/sat1/ha, where it is what lets the app tell "tick this
   /// checkbox" apart from "upgrade Home Assistant" instead of hedging between them. An atomic
   /// because it is written from the main loop and read from the httpd task, the same split as the
@@ -508,6 +519,19 @@ class WebUIHandler : public AsyncWebHandler {
   /// The hub's interpolated track position, refreshed by the component once per loop iteration so
   /// the endpoint never calls into the hub from the httpd task.
   void media_set_pos(uint32_t ms) { this->media_pos_ms_.store(ms, std::memory_order_relaxed); }
+
+  /// The Sendspin client id, once the hub has one (sendspin-cpp derives it from the persisted
+  /// keypair, so it exists after start() and never changes). /api/sat1/state carries it so the app
+  /// can find this device's Music Assistant player: since MA 2.10 / ESPHome 2026.10 the player id
+  /// is this id, not the MAC. Main loop writes once; the release store publishes the buffer to the
+  /// httpd task.
+  void set_sendspin_id(const char *id) {
+    if (id == nullptr || id[0] == '\0' || this->sendspin_id_set_.load(std::memory_order_relaxed))
+      return;
+    strlcpy(this->sendspin_id_, id, sizeof(this->sendspin_id_));
+    this->sendspin_id_set_.store(true, std::memory_order_release);
+  }
+  bool sendspin_id_set() const { return this->sendspin_id_set_.load(std::memory_order_relaxed); }
 #endif
 #endif
 
@@ -561,12 +585,40 @@ class WebUIHandler : public AsyncWebHandler {
   LogHistory &log_history() { return this->log_history_; }
 #endif
 
+#ifdef USE_SAT1_MIC_MONITOR
+  /// Developer builds: GET /api/sat1/mic. Configured from generated code, set up and pumped by the
+  /// component.
+  MicMonitor &mic_monitor() { return this->mic_monitor_; }
+  /// Main loop: one pump pass, stamped with the assistant's phase and the wake word score lane.
+  void mic_monitor_loop();
+#endif
+
+#ifdef USE_SAT1_SYSMON
+  /// Developer builds: GET /api/sat1/sysmon. Begun and sampled by the component.
+  SysMon &sysmon() { return this->sysmon_; }
+  /// What the device was doing at a sample: assistant running, XMOS not ready, mic streaming.
+  uint8_t sysmon_flags();
+#endif
+
 #ifdef USE_SAT1_WEB_UI_AMP
   /// Set from generated code, before the listener accepts anything. The speaker amplifier is the
   /// third thing web_server cannot cover (after media players and wake words): an audio_dac is not
   /// an entity, so its power mode and digital volume level ride neither /events nor the entity
-  /// REST API, and GET /api/sat1/amp is the only way the app's Speaker amplifier card sees them.
+  /// REST API, and GET /api/sat1/amp is the only way the app's TAS2780 card sees them.
   void set_speaker_amp(tas2780::TAS2780 *amp) { this->speaker_amp_ = amp; }
+#endif
+
+#ifdef USE_SAT1_WEB_UI_RING
+  /// Set from generated code, before the listener accepts anything. The ring's per-moment styles
+  /// are one select's worth of state in Home Assistant but nine styles in the app, so the LED
+  /// Ring page reads and edits them through /api/sat1/ring rather than an entity per field.
+  void set_ring(satellite1_ring::RingFx *ring) { this->ring_ = ring; }
+#endif
+
+#ifdef USE_SAT1_WEB_UI_DSP
+  /// Set from generated code, before the listener accepts anything. The speaker EQ's profiles and
+  /// presets have no entity; the Audio > Equalizer page reads and edits them through /api/sat1/dsp.
+  void set_dsp(satellite1_dsp::SpeakerDsp *dsp) { this->dsp_ = dsp; }
 #endif
 
   // NOLINTNEXTLINE(readability-identifier-naming)
@@ -649,6 +701,20 @@ class WebUIHandler : public AsyncWebHandler {
 #ifdef USE_SAT1_WEB_UI_AMP
     AMP,
 #endif
+#ifdef USE_SAT1_WEB_UI_RING
+    RING,
+    RING_SET,
+    RING_RESET,
+    RING_PREVIEW,
+    RING_PREVIEW_STOP,
+#endif
+#ifdef USE_SAT1_WEB_UI_DSP
+    DSP,
+    DSP_CAPS,
+    DSP_LIVE,
+    DSP_SET,
+    DSP_PRESET,
+#endif
 #ifdef USE_SAT1_WEB_UI_SOUNDS
     SOUND,
 #endif
@@ -660,6 +726,12 @@ class WebUIHandler : public AsyncWebHandler {
 #endif
 #ifdef USE_SAT1_LOG_HISTORY
     LOG,  // GET /api/sat1/log (boot, from - only what is newer than a previous answer)
+#endif
+#ifdef USE_SAT1_MIC_MONITOR
+    MIC,  // GET /api/sat1/mic (a stream that never ends; see MicMonitor)
+#endif
+#ifdef USE_SAT1_SYSMON
+    SYSMON,  // GET /api/sat1/sysmon (since, tasks)
 #endif
   };
 
@@ -746,8 +818,36 @@ class WebUIHandler : public AsyncWebHandler {
 #endif
 #ifdef USE_SAT1_WEB_UI_AMP
   /// GET /api/sat1/amp: the TAS2780's power mode, activity and digital volume level, for the
-  /// Diagnostics route's Speaker amplifier card. Session-gated like every /api/sat1 read.
+  /// TAS2780 card on Settings > Developer. Session-gated like every /api/sat1 read.
   void handle_amp_(AsyncWebServerRequest *request);
+#endif
+#ifdef USE_SAT1_WEB_UI_RING
+  /// GET /api/sat1/ring: the active style, the style it was copied from, the moment on the ring
+  /// now, and every moment's animation.
+  void handle_ring_(AsyncWebServerRequest *request);
+  /// POST /api/sat1/ring?style=... applies a style; ?m=...&fx=&cm=&c=&sp=&br=&dir=&p= edits one
+  /// moment (copying a preset into Custom first). POST /api/sat1/ring/reset?m=... or ?all=1.
+  void handle_ring_set_(AsyncWebServerRequest *request);
+  void handle_ring_reset_(AsyncWebServerRequest *request);
+  /// POST /api/sat1/ring/preview?m=...&ms=... plays a moment or support signal on the device,
+  /// optionally as an unsaved draft (the same style fields as an edit); /preview/stop ends it.
+  void handle_ring_preview_(AsyncWebServerRequest *request);
+#endif
+#ifdef USE_SAT1_WEB_UI_DSP
+  /// GET /api/sat1/dsp: everything the Equalizer page shows - both profiles, every preset, the limits it
+  /// edits within, and the XMOS's latest info and stats. Starts the once-a-second live reads.
+  void handle_dsp_(AsyncWebServerRequest *request);
+  /// GET /api/sat1/dsp/caps: {"dsp":N} alone, the Audio page's one re-check after an XMOS connects.
+  void handle_dsp_caps_(AsyncWebServerRequest *request);
+  /// GET /api/sat1/dsp/live: the switch, sync and XMOS info and stats without the profiles, for the
+  /// open Equalizer page's poll. Keeps the live reads going.
+  void handle_dsp_live_(AsyncWebServerRequest *request);
+  /// POST /api/sat1/dsp with form fields: en=0|1, cmp=0|1 (hold-to-compare), and/or out=0|1 with
+  /// any of pre, bass, mid, tre, lim, atk, rel, preset and f (every filter, "type,on,hz,db,q;...").
+  void handle_dsp_set_(AsyncWebServerRequest *request);
+  /// POST /api/sat1/dsp/preset with op=load|save|delete|rename|reset, name and out; rename's new
+  /// name in to.
+  void handle_dsp_preset_(AsyncWebServerRequest *request);
 #endif
 #ifdef USE_SAT1_CRASH_REPORT
   /// The crash history and its metadata as JSON; the two big payloads live on routes of their own.
@@ -763,6 +863,10 @@ class WebUIHandler : public AsyncWebHandler {
 #ifdef USE_SAT1_LOG_HISTORY
   /// The log history as text/plain, chunked from the PSRAM rings through one PSRAM scratch block.
   void handle_log_(AsyncWebServerRequest *request);
+#endif
+#ifdef USE_SAT1_SYSMON
+  /// The memory history newer than `since`, at most two hours per answer, plus the task table.
+  void handle_sysmon_(AsyncWebServerRequest *request);
 #endif
 #ifdef USE_MEDIA_PLAYER
   void handle_media_(AsyncWebServerRequest *request);
@@ -984,8 +1088,22 @@ class WebUIHandler : public AsyncWebHandler {
   LogHistory log_history_;
 #endif
 
+#ifdef USE_SAT1_MIC_MONITOR
+  MicMonitor mic_monitor_;
+#endif
+
+#ifdef USE_SAT1_SYSMON
+  SysMon sysmon_;
+#endif
+
 #ifdef USE_SAT1_WEB_UI_AMP
   tas2780::TAS2780 *speaker_amp_{nullptr};
+#endif
+#ifdef USE_SAT1_WEB_UI_RING
+  satellite1_ring::RingFx *ring_{nullptr};
+#endif
+#ifdef USE_SAT1_WEB_UI_DSP
+  satellite1_dsp::SpeakerDsp *dsp_{nullptr};
 #endif
 
 #ifdef USE_VOICE_ASSISTANT
@@ -1060,6 +1178,12 @@ class WebUIHandler : public AsyncWebHandler {
   std::atomic<uint8_t> media_shuffle_{0};
   std::atomic<uint8_t> media_repeat_{0};
   std::atomic<uint8_t> media_ctrl_ok_{0};
+
+  /// The Sendspin client id for /api/sat1/state (set_sendspin_id). 48 bytes holds the 43-char
+  /// base64url id. Written once on the main loop, read by the httpd task after the acquire load
+  /// of the flag.
+  char sendspin_id_[48]{};
+  std::atomic<bool> sendspin_id_set_{false};
 #endif
 #endif
 };

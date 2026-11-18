@@ -9,6 +9,7 @@
  * the device serves.
  */
 import { useEffect, useReducer, useRef, useState } from "preact/hooks";
+import { dspRecheckDue, dspSupport } from "./dsp.js";
 import { LOG_LEVEL, mergeLogHistory, msSince, parseLogHistory } from "./loghistory.js";
 
 /* ------------------------------------------------------------------ */
@@ -348,7 +349,7 @@ export function peerOrigin(d) {
  * yet, 1 allowed, 2 blocked (the "Allow the device to perform Home Assistant actions" checkbox is
  * off), 3 unverifiable (Home Assistant predates 2025.12 and answers no action call, so a silence
  * must not accuse the checkbox). It is tts_routing's ha_actions_allowed verdict, pushed into the
- * component at every transition - see tts_routing_status_publish.
+ * component at every transition - see remote_announcement_status_publish.
  *
  * A stale payload is still served with its real age rather than withheld, because a list of speakers
  * from a minute ago is more use than an empty one - so `stale` is advice to the UI, not an error.
@@ -935,6 +936,41 @@ export function useMaData(enabled) {
   };
 
   return { ma, maCmd, maRead: read, maAsk: ask };
+}
+
+/* ------------------------------------------------------------------ */
+/* Speaker EQ support                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether the running XMOS has the speaker EQ (src/lib/dsp.js): 1, 0, 2 (not known yet) or null
+ * before the state has loaded. Starts from the state payload's "dsp" field, follows every state poll,
+ * and asks GET /api/sat1/dsp/caps once each time `xmos` - the xmos_firmware entity's value - becomes
+ * a version string. Whichever answer arrived last wins.
+ */
+export function useDspSupport(device, xmos) {
+  const [support, setSupport] = useState(() => dspSupport(device));
+  useEffect(() => {
+    if (device) setSupport(dspSupport(device));
+  }, [device]);
+
+  const supportRef = useRef(support);
+  supportRef.current = support;
+  const prev = useRef(undefined);
+  useEffect(() => {
+    if (xmos === undefined) return undefined;
+    const was = prev.current;
+    prev.current = xmos;
+    if (!dspRecheckDue(was, xmos, supportRef.current)) return undefined;
+    let live = true;
+    requestJson("/api/sat1/dsp/caps").then((r) => {
+      if (live && r && (r.dsp === 0 || r.dsp === 1 || r.dsp === 2)) setSupport(r.dsp);
+    });
+    return () => {
+      live = false;
+    };
+  }, [xmos]);
+  return support;
 }
 
 /* ------------------------------------------------------------------ */

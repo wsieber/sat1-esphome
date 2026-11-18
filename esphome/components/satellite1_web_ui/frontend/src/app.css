@@ -1055,12 +1055,11 @@ section.now.now-compact .timer {
 .au-tree-count { font-size:12px; color:var(--muted); white-space:nowrap; }
 .au-tree-ps { padding:0 0 4px 32px; }
 .au-tree-p { display:flex; align-items:center; gap:10px; min-height:44px; padding:10px 14px 10px 0; border-top:1px solid var(--line); }
-.au-tree-self { padding:10px 14px; border-bottom:1px solid var(--line); background:color-mix(in srgb, var(--orb-a) 8%, transparent); }
+.au-tree-head { padding:12px 14px; border-bottom:1px solid var(--line); background:color-mix(in srgb, var(--orb-a) 8%, transparent); }
 .au-tree-off { opacity:.55; }
 .au-tree-player-name { flex:1; font-size:13px; color:var(--text); }
 .au-tree-why { font-size:12px; color:var(--muted); white-space:nowrap; }
 .au-tree-p { min-width:0; }
-.au-tree-self { flex-wrap:wrap; }
 
 /* AudioTab — responsive route layout */
 @media (min-width: 640px) {
@@ -1069,7 +1068,6 @@ section.now.now-compact .timer {
   .au-route-cards { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
   .au-route-cards .au-card { margin-bottom:0; }
   .au-tree-player-name { overflow-wrap:anywhere; word-break:break-word; min-width:0; }
-  .au-tree-self { flex-wrap:wrap; gap:8px; }
 }
 @media (min-width: 1024px) {
   .app > .control.au-route { grid-column:2 !important; grid-row:2 !important; display:flex !important; flex-direction:column !important; gap:0 !important; padding:32px 32px 24px !important; max-width:900px; height: calc(100dvh - var(--header-h, 65px) - var(--mbar-h, 83px) - var(--sab)) !important; }
@@ -1370,7 +1368,7 @@ li.open .wifi-bars,.wiz-net:hover .wifi-bars{fill:var(--orb-ink);color:var(--orb
 .header-toast-slot{transform:translateY(-110%);opacity:0;pointer-events:none}
 .app-header.toast-active .header-device-slot{transform:translateY(110%);opacity:0;pointer-events:none;transition:transform 280ms cubic-bezier(0.22,1,0.36,1),opacity 200ms ease}
 .app-header.toast-active .header-toast-slot{transform:translateY(0);opacity:1;pointer-events:auto;transition:transform 280ms cubic-bezier(0.22,1,0.36,1),opacity 220ms ease}
-.header-toast-pill{display:flex;align-items:center;gap:8px;padding:5px 6px 5px 12px;border-radius:10px;background:var(--toast-bg);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--text);border:1px solid var(--line);border-left:3px solid var(--orb-ctl);box-shadow:var(--shadow-card);font-size:12px;width:100%;box-sizing:border-box}
+.header-toast-pill{display:flex;align-items:center;gap:8px;padding:5px 6px 5px 12px;border-radius:10px;background:var(--toast-orb);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--text);border:1px solid var(--line);border-left:3px solid var(--orb-ctl);box-shadow:var(--shadow-card);font-size:12px;width:100%;box-sizing:border-box}
 .header-toast-pill.toast-warn{border-left-color:#f59e0b}.header-toast-pill.toast-error{border-left-color:#ef4444}.header-toast-pill.toast-timer{border-left-color:var(--orb-ctl)}
 .toast-info .toast-icon,.toast-timer .toast-icon{color:var(--orb-ink)}.toast-warn .toast-icon{color:#d97706}.toast-error .toast-icon{color:var(--danger)}
 [data-theme='dark'] .toast-warn .toast-icon{color:#fbbf24}
@@ -1477,15 +1475,15 @@ main.app > .tab-content-enter > section.now { padding-bottom: calc(45px + var(--
 .app > .tab-content-enter > .control.pr-tab { display: flex !important; flex-direction: column !important; gap: 0 !important; }
 .app > .tab-content-enter > .control.dx-tab { display: block !important; }
 @media (min-width: 640px) {
-  .app > .tab-content-enter > .control:not(.pr-tab):not(.dx-tab):not(.au-route) { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 16px !important; align-content: start !important; }
-  .app > .tab-content-enter > .control.au-route { display: flex !important; flex-direction: column !important; gap: 0 !important; }
+  .app > .tab-content-enter > .control:not(.pr-tab):not(.dx-tab):not(.au-tab) { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 16px !important; align-content: start !important; }
+  .app > .tab-content-enter > .control.au-tab { display: flex !important; flex-direction: column !important; gap: 0 !important; }
 }
 @media (min-width: 1024px) {
   .app > .tab-content-enter > .now,
   .app > .tab-content-enter > .control { grid-column: 2 !important; grid-row: 2 !important; }
   main.app > .tab-content-enter > section.now { padding-bottom: calc(10px + var(--sab)) !important; }
-  .app > .tab-content-enter > .control:not(.pr-tab):not(.dx-tab):not(.au-route) { grid-template-columns: repeat(3, 1fr) !important; gap: 20px !important; padding: 32px 32px 24px !important; height: calc(100dvh - var(--header-h, 65px) - var(--mbar-h, 83px) - var(--sab)) !important; }
-  .app > .tab-content-enter > .control.au-route { max-width: 900px; padding: 32px 32px 24px !important; height: calc(100dvh - var(--header-h, 65px) - var(--mbar-h, 83px) - var(--sab)) !important; }
+  .app > .tab-content-enter > .control:not(.pr-tab):not(.dx-tab):not(.au-tab) { grid-template-columns: repeat(3, 1fr) !important; gap: 20px !important; padding: 32px 32px 24px !important; height: calc(100dvh - var(--header-h, 65px) - var(--mbar-h, 83px) - var(--sab)) !important; }
+  .app > .tab-content-enter > .control.au-tab { max-width: 900px; padding: 32px 32px 24px !important; height: calc(100dvh - var(--header-h, 65px) - var(--mbar-h, 83px) - var(--sab)) !important; }
 }
 
 /* ===== MSlider — unified settings slider ===== */

@@ -11,9 +11,9 @@
 
 export const HINTS = {
   // tts_routing, tts_local_speaker, tts_targets and tts_manual_ids are gone. The first two described
-  // switches that no longer exist; the tree is now the whole control and explains itself by being a
-  // list of rooms with "Local Speaker" at the top of it. The manual id field was replaced by the "No
-  // Area Assigned" group, which shows those players by name instead of asking for their entity ids.
+  // switches that no longer exist; the speaker list is now the whole control and explains itself by
+  // being a list of rooms. The manual id field was replaced by the "No Area Assigned" group, which
+  // shows those players by name instead of asking for their entity ids.
 
   /* The switcher sheet. What needs saying is not "this is a list of devices", which is visible, but
      which device the page's controls currently belong to - the single fact that makes the whole page
@@ -41,44 +41,58 @@ export const HINTS = {
   ha_ingress:
     "Puts your Satellite1s in Home Assistant's sidebar, proxied through Home Assistant itself - so it works wherever Home Assistant does, on your local network or over a public https address. hass_ingress is a third-party integration, not part of this firmware. The YAML covers every Satellite1 Home Assistant knows about: this device is the one visible \"Satellite1 Fleet\" entry, the rest sit hidden behind it, and the device switcher reaches them all from inside the panel. Anyone who can open the panel reaches the devices' sign-in pages through it; the YAML limits the panel to admin users - remove the require_admin line to show it to everyone.",
 
-  /* On the card title rather than a row, because what needs explaining is the tree, and the tree has no
-     row of its own to hang an ⓘ off. This is also the only place Local Speaker is explained: it is the
-     one tick in there whose effect is not obvious from its name, since it silences this device rather
-     than adding a target. */
-  remote_routing:
-    "Plays this device's audio on other speakers as well as this one: the assistant's spoken answers, sign-in prompts, ringing timers, and the wake chime if you turn that on below. Tick a room to include every player in it, or open the room and pick players. Local Speaker is this device's own speaker - untick it and answers play only where you have chosen.",
+  /* On the card title. What needs saying up front is that one list does two jobs, and the one rule
+     joining them; how each column behaves is on the column heading's hint, next to the boxes. */
+  audio_routing:
+    "Pick which speakers play this device's responses, and which turn down while you talk to it. A speaker that plays responses is always turned down as well. Tick a room to cover every speaker in it, including ones added later, or open the room and pick speakers.",
 
-  /* The last sentence names the three behaviours behind the one slider - Sonos reading the level off
-     the announcement, another Satellite1 having its voice volume set, anything else its media volume -
-     because one slider that acts three ways gets reported as a bug unless something says so. It is
-     here rather than a paragraph under the slider because you need to read it once. */
-  remote_tts_volume:
-    "How loud answers are on the remote speakers. This device's own level is the one on the Local Speaker row. Sonos reads the level from the announcement itself; another Satellite1 has its voice volume set for the answer, and anything else its media volume, both put back afterwards.",
+  /* On the Speaker heading above the two columns. The duck's window is stated here and nowhere else.
+     It is wider than people assume: the duck goes out at the wake word and the volumes come back when
+     the answer ends - so it is quiet while it listens to you, not only while it answers.
 
+     A speaker ticked to Announce is always ducked (October 2026), by its own announcement ducking or
+     by volume, so its Duck box fills in and does nothing - except a Satellite1 on older firmware,
+     whose row says so. The last two sentences cover this device's own Announce box, which is the
+     "Announce on this device" setting rather than a routing pick. */
+  speaker_columns:
+    "Announce plays this device's assistant responses, sign-in prompts and ringing timers on the speaker, and the wake chime if Remote Wake Chime is on. Duck turns the speaker down while the assistant listens and answers, then puts it back. A speaker ticked to Announce is always turned down too, so its Duck box fills in by itself - except a Satellite1 on older firmware. This device's own Announce box decides whether it also answers out loud when its responses go to other speakers; timers, chimes and other announcements play here either way. It greys out while nothing else is ticked to Announce, because the device always answers itself then.",
+
+  /* The switch that stands in for this device's Announce box when its row is not in the list - no
+     Home Assistant yet, or a list cut short. What needs saying is the narrowness: it silences this
+     device's own responses only, so a timer or a chime still sounding here is not a bug. Greyed while
+     nothing is ticked, because only a response that also goes elsewhere is affected. */
+  local_speaker:
+    "Turn off to play responses only on the speakers ticked to Announce. Timers, chimes and other announcements still play here.",
+
+  /* One slider acts three ways - Sonos reads the level off the announcement, another Satellite1 has
+     its Announcement Volume set and put back, anything else its media volume - so the hint states the
+     outcome, which is the same on all three, rather than the mechanism. The last sentence is the
+     surprise at 0: a Satellite1 left at volume 0 is silent, as it is for its own sounds. */
+  remote_announcement_volume:
+    "How loud this device's responses and timer rings play on the speakers ticked to Announce. Above 0, each plays at this level and gets its own level back afterwards. At 0 each speaker follows its own volume, so a Satellite1 whose volume is 0 stays silent.",
+
+  /* A Satellite1 target is asked only if its own Wake sound is on (wake_chime_targets_jinja), so
+     a silent one is its owner's choice rather than a fault. */
   remote_wake_chime:
-    "Plays the wake chime on the target speakers too, so you can hear that the device heard you from the room the sound is going to. On Sonos and similar speakers the chime can land up to a second late - their clip playback has a fixed startup cost the device cannot remove.",
+    "Plays the wake chime on the speakers ticked to Announce too, so you can hear that the device heard you from the room the sound is going to. A Satellite1 among them chimes only if its own Wake sound is on. On Sonos and similar speakers the chime can land up to a second late - their clip playback has a fixed startup cost the device cannot remove.",
 
   remote_timer_ring:
-    'Rings a finished timer on the target speakers too, until the alarm is stopped. Saying "stop" at any speaker silences it everywhere.',
+    'Rings a finished timer on the speakers ticked to Announce too, until the alarm is stopped. Saying "stop" at any speaker silences it everywhere.',
 
+  /* Remote Echo Guard. Keyed by the select's id, which keeps its old name because a page served by
+     one firmware version reads the entity keys of a device running another. */
   remote_sync_guard:
-    "How long this device keeps its microphone closed after a routed answer, so it cannot hear its own answer from a speaker running slightly behind and mistake it for you. It only engages when the assistant is about to listen again - a continued conversation or voice sign-in; one-shot answers skip it entirely.",
+    "How long this device keeps its microphone closed after a routed answer, so it cannot hear its answer echo from a speaker running slightly behind and mistake it for you. It only engages when the assistant is about to listen again - a continued conversation or voice sign-in; one-shot answers skip it entirely.",
 
-  // duck_area, duck_players and duck_tts_targets are gone for the same reason. Ducking is now the same
-  // tree, and the answer to "which players" is visibly the thing being ticked.
+  // duck_area, duck_players and duck_tts_targets are gone for the same reason, and area_ducking went
+  // with its card when the two lists became one: the answer to "which players" is visibly the thing
+  // being ticked.
 
-  /* The window is stated here and nowhere else. It is wider than people assume: the duck goes out on the
-     voice assistant's on_start, which is the wake word, and the volumes come back on on_end - so it is
-     quiet while it listens to you, not only while it answers. The old label said "while talking", which
-     described half of it. */
-  area_ducking:
-    "Turns other speakers down while the assistant listens and answers, then puts them back where they were. Tick a room to cover every player in it.",
-
-  /* Deliberately does not repeat when the ducking happens - that is on the card above this row, and
-     saying it twice made the two bubbles look like they were describing different things. What is left is
-     the part that only applies to this slider: it is a floor, not a reduction. */
+  /* Remote Ducking Volume. Deliberately does not repeat when the ducking happens - that is on the
+     column heading's hint. What is left is the part that only applies to this slider: it is a floor,
+     not a reduction, and a Sonos or Satellite1 ticked to Announce does not use it. */
   duck_volume:
-    "The level they drop to. Players already quieter than this are left alone, so a whole-house group does not get turned up.",
+    "The level speakers ticked to Duck drop to. Players already quieter than this are left alone, so a whole-house group does not get turned up. A Sonos or Satellite1 ticked to Announce lowers its own music instead.",
 
   // "and the offset is stored on the device" used to end this. It is what `calibrate` says two rows below
   // it in the same editor, so it was cut. The instrument to compare against stays: that part is specific to
@@ -167,11 +181,11 @@ export const HINTS = {
   // exists for Home Assistant; the two write the same cutoffs, last writer wins, and the per-word
   // override is re-asserted at boot.
 
-  // Names the speaker it moves, and names the other slider by its on-screen label, because the pair
-  // share the Audio page's routing card (this one on the Local Speaker row, the other below it) and
-  // the hints are the only thing keeping them apart.
-  voice_override:
-    "How loud this device speaks when the assistant replies, separate from media volume. Zero follows the media volume instead. Speakers you route answers to have their own level - Remote Speaker Volume, below.",
+  // The first slider on the Audio page's routing card. Lists everything it covers, because
+  // "announcement" undersells it - timers and chimes ride the same pipeline. The last sentence answers
+  // the support question the volume buttons raise: they never move this.
+  announcement_volume:
+    "How loud this device plays assistant replies, timers, chimes and announcements, separate from the media volume. At 0 it follows the media player volume. The volume buttons change only the media volume.",
 
   /* Finished speaking detection, set per wake word. Three things need saying: what the options
      trade against each other, that each wake word has its own, and why Home Assistant's single
@@ -180,11 +194,13 @@ export const HINTS = {
   finished_speaking:
     "How long the assistant waits after you stop talking before it answers. Aggressive answers fastest; Relaxed tolerates longer mid-sentence pauses. Each wake word has its own setting. Home Assistant keeps only one, so just before the assistant listens, the device copies the wake word's choice onto it - which is why Finished speaking detection on Home Assistant's device page changes as different wake words are used. A change made there only lasts until a wake word sets it again. The action button uses the Primary wake word's setting.",
 
+  /* Audio > Equalizer, Channel under Built-in Speaker: the one amplifier setting a customer gets.
+     Announcement Routing's Speaker card carries it instead while the Equalizer isn't listed. */
   speaker_channel:
     "Which side of a stereo source reaches the single speaker. Mono sums both, which is usually what you want.",
 
-  /* The Speaker amplifier card's title. Sets the frame the four row hints below rely on: one chip,
-     three levels that multiply together, and only one of them is yours to set here. */
+  /* The TAS2780 card's title (Settings > Developer). Sets the frame the three row hints below rely
+     on: one chip, three levels that multiply together, and only one of them is settable here. */
   speaker_amp:
     "The chip that drives the built-in speaker. What you hear is three levels multiplied together: the power gain mode the amplifier picks from your USB-C supply, the digital volume the firmware computes from your sliders, and the analog gain set below.",
 
@@ -193,12 +209,12 @@ export const HINTS = {
      surprising thing: the row exists so "why is my speaker quieter than the video's" has an answer
      a customer can act on (a better USB-C brick). */
   amp_mode:
-    "Picked automatically from the measured power supply - it is a reading, not a setting. High gain: a 9 V or higher USB-PD supply is connected and the speaker can reach full loudness. Low gain: the device is on a plain 5 V supply, so maximum loudness is reduced. Off: the amplifier is shut down, normally because line out is selected. A supply that negotiates 9 V or more (the USB-C Power Supply row in the Device card above) is what unlocks High gain.",
+    "Picked automatically from the measured power supply - it is a reading, not a setting. High gain: a 9 V or higher USB-PD supply is connected and the speaker can reach full loudness. Low gain: the device is on a plain 5 V supply, so maximum loudness is reduced. Off: the amplifier is shut down, normally because line out is selected. A supply that negotiates 9 V or more (the USB-C Power Supply row on Device Info) is what unlocks High gain.",
 
   /* The Digital volume row. Read-only on purpose, and the hint says where the writable levers are
      so nobody hunts for a handle on this row. */
   amp_dvc:
-    "How far open the amplifier's digital volume control is right now - the level the firmware computes from the volume buttons, Voice Volume Override and ducking. Shown so you can see what the amplifier is actually being fed; it is managed automatically and has no handle here. To change it, use the volume controls.",
+    "How far open the amplifier's digital volume control is right now - the level the firmware computes from the media volume and Announcement Volume. Shown so you can see what the amplifier is actually being fed; it is managed automatically and has no handle here. To change it, use the volume controls.",
 
   /* The Analog gain slider. The default is named because the row offers the full range, and "where
      was it before I touched it" must never require support - the notch on the track marks it and
@@ -208,7 +224,7 @@ export const HINTS = {
     "The amplifier's output-level ceiling, applied on top of the digital volume. The notch on the track is the factory default, 15 dBV - the right everyday setting, and the slider snaps to it. Higher values make everything louder but can add distortion, and on a 5 V supply the chip's built-in limiter will duck the sound to protect the power rail. Lower it if the speaker distorts at high volume.",
 
   led_ring:
-    "The ring the assistant animates. Colour and brightness set here are the resting state - the device still overrides both while it is listening, thinking or reporting an error.",
+    "The ring the assistant animates. Colour and brightness set here show while it is idle, waiting for its wake word - the device still overrides both while it is listening, thinking or reporting an error.",
 
   timers:
     'Timers set by voice, held on the device - they keep counting and still ring if Home Assistant goes away. Voice is also how they are managed: name one when you set it ("set a pizza timer for ten minutes"), pause or cancel it the same way.',
@@ -240,7 +256,7 @@ export const HINTS = {
      customer can act on, and it is why the row exists at all. The ~ gets a sentence because the
      current is the one number here that is a promise rather than a measurement. */
   usb_power:
-    "What the USB-C power supply agreed to deliver. Chargers that speak USB Power Delivery negotiate a voltage and the most current they will supply at it - the ~ marks that ceiling: the device draws only what it needs, usually far less. 5 V is a plain supply that negotiated nothing. 9 V or more is what lets the speaker amplifier run at High gain - the Speaker amplifier card just below.",
+    "What the USB-C power supply agreed to deliver. Chargers that speak USB Power Delivery negotiate a voltage and the most current they will supply at it - the ~ marks that ceiling: the device draws only what it needs, usually far less. 5 V is a plain supply that negotiated nothing. 9 V or more is what lets the speaker amplifier run at High gain, for full loudness.",
 
   xmos: "The audio chip. It owns the microphones, the speaker, the mute button and the LED ring, and runs its own firmware separate from the ESP32's.",
 
@@ -253,6 +269,23 @@ export const HINTS = {
     "Developer builds only. Lists the audio chip firmware published on the Satellite1-XMOS GitHub releases, beside the built-in copy this firmware carries. Picking one installs it - the device itself doesn't restart - and it stays installed across restarts until you pick Built-in again.",
   xmos_refresh:
     "Checks the Satellite1-XMOS GitHub releases for new firmware now, pre-releases included, instead of waiting for the device's own hourly check. New versions appear in the list above.",
+
+  /* Settings > Developer, only on config/satellite1.dev.yaml builds. Written for the team, so they
+     name the firmware's own parts; what a reader needs is what each view is measured from. */
+  mic_monitor:
+    "What the microphones hear, live: Speech-to-text is exactly what the voice assistant receives, Wake word is the same audio after the wake word engine's gain. Both are drawn; Play picks which one you hear. Muting the device sends silence. Recordings stay in this browser until you download them, one mono WAV per channel, with markers for wake words, assistant phases, XMOS restarts and dropped audio. Two pages can listen to one device at a time.",
+  mic_scores:
+    "Each wake word model's score, sampled every quarter second: the loudest it got in that window. A line crosses the dashed cutoff when it fires; the cutoff is drawn only for a word that has been tuned.",
+  multilog:
+    "Reads the recent log from each device you tick and merges them by time. Each device's clock is pinned to this browser's when it answers, so lines from two devices line up to within half that device's round trip, which the download's header lists. Other devices are signed in to with the password Home Assistant holds for them.",
+  sysmon:
+    "Memory sampled every ten seconds for the last twelve hours, kept on the device so the history is there before you open this page. The shaded bands mark when the assistant was running, when the XMOS was not ready and when the mic monitor was streaming.",
+  sysmon_tasks:
+    "Every FreeRTOS task, sorted by the least stack it has ever had free. Under 512 bytes is a crash waiting for the wrong code path.",
+  speaker_eq:
+    "The speaker EQ's own report, read from the audio chip once a second: what it is playing, how long each frame takes and how hard the limiter is working. Check it after an XMOS firmware swap or a heavy preset.",
+  xmos_limiter:
+    "Left and right: how much of the last second and a half the limiter spent reducing gain. Deepest is the most it has ever pulled down since the chip started.",
 
   // xmos_erase was here. The row it explained is gone from the app: the full erase is a recovery
   // tool - it restarts the device, erases the audio chip's entire flash and reinstalls the embedded
@@ -773,6 +806,10 @@ export const TEXT = {
   ma_connect_btn: "Connect",
   ma_disconnect_btn: "Disconnect",
   ma_error: "Could not connect. Check the address and token, and that this browser can reach the server.",
+  // The socket is on, but players/all holds no player for this device, so grouping and search have
+  // nothing to drive. The server is the place to fix that, and the panel's note says so instead of
+  // letting the green dot promise what the connection cannot deliver.
+  ma_no_self: "Connected, but this speaker isn't listed yet",
 
   /* The server scan inside the connection panel (September 2026): browsers cannot browse mDNS, so
      the button sweeps the device's own subnet on Music Assistant's port and verifies each answer
@@ -860,6 +897,12 @@ export const TEXT = {
     "Search rides a direct connection to your Music Assistant server. Set it up once and every browser signed into this device shares it.",
   search_setup_btn: "Set up connection",
   search_connecting: "Connecting to Music Assistant\u2026",
+  // The connected-but-unlisted state: the server answered and this device's player simply isn't
+  // there (Sendspin off, or the speaker not registered yet). "Connecting…" would be a lie that
+  // never resolves, so the drawer names the real condition and where to fix it.
+  search_no_self_t: "This speaker isn't in Music Assistant",
+  search_no_self_b:
+    "The connection works, but Music Assistant doesn't list this speaker. Check that Sendspin is enabled in Music Assistant and that this speaker appears in its players.",
 
   /* The Presence route: zone editing, gate thresholds, and the no-sensor card. The zi_* strings are
      the one instruction line under the plot, swapped by what the person is doing right now - one short
@@ -1075,7 +1118,7 @@ export const TEXT = {
   crash_erase_row: "Crash history",
   crash_erase: "Erase history",
 
-  /* Recovery: the developer XMOS firmware picker. The dropdown's options are the device's own
+  /* Settings > Developer: the XMOS firmware picker. The dropdown's options are the device's own
      ("Built-in (v1.1.0-alpha.0)", then each version). The stage lines replace the dropdown while an
      install runs, above one progress bar; %s is the version, or xf_builtin_long. The install's
      result is the device's own sentence ("Installed v1.1.0-dev.110", "Failed: ..."), shown as sent. */
@@ -1095,6 +1138,73 @@ export const TEXT = {
   xf_checked_new: "Found new XMOS firmware on GitHub",
   xf_checked_none: "No new XMOS firmware on GitHub",
   xf_check_not_started: "The device didn't start the check. Try again in a moment.",
+
+  /* Settings > Developer: the mic monitor. The status line is one of mm_st_* (the stream), then
+     whichever of the three device flags are set. %s in mm_full is the length. */
+  mm_title: "Microphones",
+  mm_listen: "Listen",
+  mm_stop: "Stop",
+  mm_play_row: "Play",
+  mm_ch_stt: "Speech-to-text",
+  mm_ch_ww: "Wake word",
+  mm_ch_off: "Off",
+  mm_st_off: "Not listening",
+  mm_st_connecting: "Connecting\u2026",
+  mm_st_streaming: "Streaming",
+  mm_st_reconnecting: "Connection lost. Reconnecting\u2026",
+  mm_st_busy: "Two pages are already listening to this device. Close one and try again.",
+  mm_st_low_memory: "The device is low on memory right now. Try again in a moment.",
+  mm_st_unsupported: "This firmware has no mic monitor.",
+  mm_st_signed_out: "Your session ended. Reload the page to sign in again.",
+  mm_muted: "Muted: the device is sending silence",
+  mm_idle: "Microphones idle",
+  mm_xmos: "XMOS restarting",
+  mm_clip: "Clipping",
+  mm_scores: "Wake word scores",
+  mm_slot_primary: "Primary",
+  mm_slot_secondary: "Secondary",
+  mm_slot_stop: "Stop word",
+  mm_record: "Record",
+  mm_record_stop: "Stop recording",
+  mm_recordings: "Recordings",
+  mm_dl_speech: "Speech-to-text",
+  mm_dl_ww: "Wake word",
+  mm_dl_both: "Both (.zip)",
+  mm_delete: "Delete",
+  mm_markers: "Markers",
+  mm_full: "Stopped at the %s limit",
+  mm_recording_note: "Recordings live in this browser tab until you download them.",
+
+  /* Settings > Developer: logs from several devices. ml_dev_* are the per-device verdicts after a
+     Collect; %n is a line count. */
+  ml_title: "Logs From Several Devices",
+  ml_this: "this device",
+  ml_offline: "offline",
+  ml_collect: "Collect",
+  ml_collecting: "Collecting\u2026",
+  ml_download: "Download",
+  ml_pick: "Tick at least one device.",
+  ml_no_roster: "Home Assistant isn't connected, so only this device can be listed.",
+  ml_dev_ok: "%n lines, round trip %r ms",
+  ml_shown: "Showing the newest %n lines. Download has them all.",
+
+  /* Settings > Developer: the system monitor. */
+  sm_title: "System Monitor",
+  sm_internal: "Internal RAM",
+  sm_psram: "PSRAM",
+  sm_free: "Free",
+  sm_block: "Largest block",
+  sm_min: "Lowest since boot",
+  sm_band_va: "Assistant",
+  sm_band_xmos: "XMOS not ready",
+  sm_band_mic: "Mic monitor",
+  sm_waiting: "Waiting for the first sample\u2026",
+  sm_tasks: "Tasks",
+  sm_task_name: "Task",
+  sm_task_prio: "Priority",
+  sm_task_stack: "Stack free",
+  sm_task_state: "State",
+  sm_no_tasks: "This firmware has no task table.",
 
   /* The community links row at the very bottom of Diagnostics, under ESP32 Recovery: the
      organisation's documentation, GitHub, YouTube and Discord. One word each - the glyph beside it
@@ -1147,20 +1257,40 @@ export const TEXT = {
   show_fix: "Show fix",
 
   ha_no_area:
-    "This device is not in a Home Assistant area, so \u201CRoute TTS To All Area Players\u201D and \u201CDuck All Area Players\u201D have no room to refer to. You can still pick any room below. Assign it to an area in Home Assistant and refresh.",
+    "This device is not in a Home Assistant area, so \u201CRoute Announcements To All Area Players\u201D and \u201CDuck All Area Players\u201D have no room to refer to. You can still pick any room below. Assign it to an area in Home Assistant and refresh.",
 
   ha_no_players:
     "Home Assistant has no media players at all, so there is nothing to choose between.",
 
-  /* Why a greyed player row in a target tree cannot be ticked - it lacks the capability the tree's
-     call needs (media_player.play_media for routing, media_player.volume_set for ducking). One
-     short reason per tree, not per integration: the row has no room for a diagnosis, and "what this
-     speaker cannot do" is the part its owner can act on. */
+  /* Why a box on a player row cannot be ticked - the player lacks the capability that column's call
+     needs (media_player.play_media for Announce, media_player.volume_set for Duck). One short reason
+     per column, not per integration: the row has no room for a diagnosis, and "what this speaker
+     cannot do" is the part its owner can act on. */
   cap_no_media: "Can't play media",
   cap_no_volume: "No volume control",
-  /* This device's own media player, shown greyed rather than omitted. Routing to yourself is the
-     Local Speaker row's job, and ducking your own volume while you talk is never right. */
+  /* A Satellite1 whose firmware predates keeping routed speakers ducked: its Duck box stays free
+     while it announces, and this is the row's only explanation of why. */
+  cap_old_firmware: "Older firmware",
+  /* This device's own row. Its Duck box is greyed - ducking your own volume while you talk is never
+     right - and its Announce box is the "Announce on this device" setting, so the caption after the
+     dot says what that box is doing now. "Always" while nothing else is ticked to Announce, because
+     the device answers itself then whatever the box says. */
   cap_self: "This device",
+  self_always: "always answers when nothing else announces",
+  self_too: "answers here too",
+  self_remote_only: "answers only on the speakers ticked",
+
+  /* The speaker list's column headings, and the line under each room's name, which counts each
+     column: "Announce 1/3 · Duck whole area". */
+  col_speaker: "Speaker",
+  col_announce: "Announce",
+  col_duck: "Duck",
+  /* The label read out for a Duck box held on by Announce, which has no caption of its own: the
+     ticked Announce box beside it is the reason. */
+  duck_locked: "turned down while it announces",
+  /* Over Remote Wake Chime, Remote Timer Ring and Remote Echo Guard, which act only on those. */
+  for_announce: "For speakers ticked to Announce",
+  local_label: "Announce on this device",
 
   /* A player Home Assistant cannot currently reach. Greyed like the capability rows above, but the
      checkbox keeps working and a prior selection stays ticked: being offline is transient, and the
@@ -1345,6 +1475,164 @@ export const PRESENCE = {
 };
 
 /**
+ * The Customize drawer and the LED ring's pages: the chooser, the orb page, the LED Ring page, the
+ * animations list and editor, and the ring guide. The orb and the ring are styled separately.
+ *
+ * Moment names are what the ring is saying in the room, not the firmware's phases. Each moment has
+ * a short line (the guide's cards) and a long one (the editor's header). The fixed signals have one
+ * line each: what it means, and the one thing to do about it where there is one.
+ */
+export const RING = {
+  // The chooser.
+  choose_eyebrow: "CUSTOMIZE",
+  choose_title: "Make it yours.",
+  choose_lead: "What would you like to style?",
+  choose_orb: "App theme",
+  choose_ring: "LED ring",
+  choose_go: "Style",
+  // The orb page.
+  orb_eyebrow: "APP THEME",
+  orb_title: "Pick a glow.",
+  // The LED Ring page.
+  ring_eyebrow: "LED RING",
+  ring_title: "Style the ring.",
+  live: "LIVE",
+  guide_link: "Read the guide to learn what every pattern means",
+  color: "COLOR",
+  custom: "Custom",
+  hue: "Hue",
+  brightness: "Brightness",
+  style: "RING STYLE",
+  customize: "Customize animations",
+  customize_sub: "Pick a look for listening, thinking, timers and more",
+  done: "Done",
+  back: "Back",
+  // The animations list.
+  list_back: "LED Ring",
+  list_eyebrow: "RING ANIMATIONS",
+  list_title: "Every moment, your way.",
+  // {base} is the preset a Custom style was copied from.
+  list_lead_custom: "Started from {base}. Colors follow your LED ring unless a moment has its own.",
+  list_lead: "Change any moment and your style becomes Custom, starting from {base}. Colors follow your LED ring unless a moment has its own.",
+  previewing: "PREVIEWING",
+  // The big ring while nothing is playing: the device is off on this page until asked.
+  list_off: "OFF · PREVIEW A MOMENT BELOW",
+  preview: "Preview",
+  preview_stop: "Stop",
+  tour: "Tour all moments",
+  tour_stop: "Stop the tour",
+  group_conv: "CONVERSATION",
+  group_more: "TIMERS, VOLUME AND STATUS",
+  // The guide's Timers and Heads-up filters.
+  group_timers: "TIMERS AND VOLUME",
+  group_status: "STATUS",
+  tag_edit: "EDITED",
+  tag_own: "OWN COLORS",
+  // {base} as above.
+  reset_all: "Reset to {base}",
+  // The editor.
+  edit_back: "Ring animations",
+  edit_eyebrow: "MOMENT",
+  edit_preview: "PLAYING ON YOUR SATELLITE1",
+  animation: "ANIMATION",
+  animation_aside: "12 to choose from",
+  arc_note: "This moment is always an arc, because the lit part is the information - the time left, or the volume. Pick its colors and brightness.",
+  colors: "COLORS",
+  colors_aside: "Ring color is the default",
+  own_note: "Own colors replace your LED ring color for this moment only. The animations list tags it, so you can always tell why it looks different.",
+  err_note: "Errors are always red, so they always mean the same thing. You can still change how they move.",
+  add_color: "Add a color",
+  motion: "MOTION",
+  cw: "Clockwise",
+  ccw: "Counter-clockwise",
+  speed: "Speed",
+  heads: "Lights",
+  tail: "Tail length",
+  // Where a ripple starts, in order round the ring from the top.
+  start: "Starts at",
+  sides: ["North", "East", "South", "West"],
+  // Where the dot sits, read like a clock face; {h} is the hour.
+  position: "Position",
+  clock: "{h} o'clock",
+  clock_half: "{h}:30",
+  // Speed words, slowest first, for sp 10-400 (100 is the firmware's normal pace).
+  speeds: ["Slow", "Relaxed", "Steady", "Lively", "Fast"],
+  reset: "Reset to {base}",
+  save: "Save",
+  saved: "Saved to your Satellite1.",
+  failed: "Your Satellite1 did not take that. Try again.",
+  // Asked when the editor is left - back, or the drawer closing - with changes not yet saved.
+  leave_title: "Leave without saving?",
+  leave_body: "You have changes to this moment that are not saved. If you leave now, they will be lost.",
+  leave: "Leave",
+  stay: "Keep editing",
+  // The guide.
+  guide_eyebrow: "RING GUIDE",
+  guide_title: "What your ring is saying.",
+  guide_lead: "Tap any pattern to play it on your Satellite1.",
+  filter_all: "All",
+  filter_conv: "Conversation",
+  filter_timers: "Timers",
+  filter_heads: "Heads-up",
+  guide_fixed: "ALWAYS THE SAME",
+  guide_fixed_aside: "So support can help",
+  tag_style: "YOUR STYLE",
+  tag_fixed: "FIXED",
+  // The color modes, the animations, and the styles.
+  cm: { ring: "Ring color", blend: "Ring blend", rainbow: "Rainbow", own: "Own colors", red: "Red, fixed" },
+  fx: {
+    off: "Off", solid: "Solid", breathe: "Breathe", pulse: "Pulse", spin: "Spin", comet: "Comet", orbit: "Orbit",
+    ripple: "Ripple", twinkle: "Twinkle", wave: "Wave", flow: "Flow", dot: "Dot", arc: "Arc",
+  },
+  styles: {
+    classic: ["Classic", "The original"],
+    calm: ["Calm", "Soft and slow"],
+    aurora: ["Aurora", "Flowing blend"],
+    party: ["Party", "All the colors"],
+    minimal: ["Minimal", "One quiet light"],
+    custom: ["Custom", "Your changes"],
+  },
+  // Own-color presets: three stops each.
+  palettes: {
+    Ocean: ["38bdf8", "2563eb", "1e40af"],
+    Aurora: ["34d399", "22d3ee", "6366f1"],
+    Sunset: ["fbbf24", "f97316", "dc2626"],
+    Candy: ["38bdf8", "a78bfa", "f472b6"],
+    Forest: ["a3e635", "22c55e", "15803d"],
+  },
+  moments: {
+    idle: ["Idle", "Waiting for the wake word.", "Waiting for its wake word. The ring is off, unless the LED Ring light is turned on in Home Assistant - then it shows that light's color."],
+    wake: ["Wake word heard", "It heard its name. Go ahead and talk.", "Your Satellite1 heard its wake word, or someone pressed the action button. It lasts a moment, until it starts listening."],
+    listen: ["Listening", "Recording what you say.", "Your Satellite1 is recording what you say. It starts right after the wake word and ends when you stop talking."],
+    think: ["Thinking", "Working on an answer.", "Home Assistant is working out what you asked and what to say back."],
+    reply: ["Replying", "Speaking the answer.", "Your Satellite1 is speaking the answer. When it finishes, the ring goes back to how it was."],
+    timer: ["Timer running", "The lit arc is the time left.", "A timer is running. The lit arc is the time left, and it shrinks as the timer runs down."],
+    ring: ["Timer done", "Time is up. Say stop or tap the button.", "A timer finished. The ring keeps going until you say stop or press the action button."],
+    vol: ["Volume", "Shows the new level while you change it.", "Shows the volume while you change it. One red light at the top means the volume is at zero."],
+    mute: ["Muted", "Mics are off. Red marks sit by each mic.", "The microphones are off, or the speaker is silent. A red mark beside each of the four mics means the mics are off; red arcs between them mean the speaker is silent."],
+    err: ["Something went wrong", "The request failed. Try again.", "The last request failed - Home Assistant could not be reached, or could not finish it. Try again."],
+  },
+  // Every signal the device can show, named for the live ring. Signals that look alike share one
+  // guide card (GUIDE_FIXED in RingStudio.tsx), so that card's line covers each of them.
+  fixed: {
+    improv: ["Setting up", "Ready to join Wi-Fi. Open the app to finish setup."],
+    init: ["Starting up", "Online, waiting for Home Assistant. Until it is on the network the ring is a soft warm white instead."],
+    no_ha: ["Home Assistant not ready", "Lost Home Assistant, or its voice assistant is not ready yet. Normal while Home Assistant restarts or updates. If it stays, check the voice pipeline in Home Assistant."],
+    not_ready: ["Not ready", "Connected, but the voice assistant is not ready yet. Check its pipeline in Home Assistant."],
+    xmos: ["Updating", "Updating audio firmware. The blue empties as it goes. Do not unplug."],
+    xmos_done: ["Done or approved", "An audio firmware update finished, or a sign-in was approved."],
+    xmos_fail: ["Update failed", "The audio firmware update did not finish. Start it again before unplugging."],
+    login: ["Sign-in request", "Someone is signing in to this page. Press the action button to approve."],
+    login_ok: ["Signed in", "The sign-in was approved."],
+    warning: ["Refused or failed", "Unmuting while the mute switch is on, a declined sign-in, a reply that could not play on another speaker, or an audio firmware update that did not finish - start that again before unplugging."],
+    action: ["Button touched", "The ring lights while you touch the action button."],
+    jack_in: ["Headphones plugged in", "Two lights run round the ring and meet when you plug into the headphone jack."],
+    jack_out: ["Headphones unplugged", "The same two lights run back the other way when you unplug."],
+    factory: ["Factory reset", "Keep holding: it resets when the ring is full. Let go to cancel."],
+  },
+};
+
+/**
  * Why a wake word swap failed, keyed by the loader's SlotError numbers (mww_runtime_loader.h - the
  * numbers are a contract, appended to and never renumbered). Each line is what the person can act
  * on, not what the firmware saw; the "previous word still active" reassurance is ww_failed's job,
@@ -1365,4 +1653,161 @@ export const WW_ERR = {
   8: "The downloaded file isn't a usable wake word model.",
   9: "The device refused the model.",
   10: "Not enough free memory for this model right now. Restart the device and try again.",
+};
+
+/**
+ * Audio > Equalizer, the speaker EQ.
+ *
+ * A filter is named by what it does to the sound ("Cut at 3.46 kHz", "Remove below 60 Hz"), with
+ * its technical name underneath for people who tune by REW. The XMOS is "the audio chip", as in
+ * CONFIRM. {hz} is a formatted frequency, {name} a preset's name, {n} a count.
+ */
+export const DSP = {
+  eyebrow: "AUDIO · EQUALIZER",
+  title_a: "Sound, ",
+  title_b: "shaped.",
+  waiting: "Waiting for the audio chip to connect.",
+  load_failed: "Couldn't load the EQ from your Satellite1.",
+  retry: "Try again",
+  updating: "The audio chip's firmware is updating. Your EQ is saved and comes back when it finishes.",
+  offline: "The audio chip isn't answering right now. Your changes are saved and sent when it's back.",
+  overload: "The EQ switched itself off: the audio chip ran short of time to run it. Remove a filter or two and it comes back on.",
+
+  // The page's two views, switched beside the title and remembered in this browser.
+  view: "View",
+  views: { basic: "Basic", advanced: "Advanced" },
+  // Basic's Tone card: the curve and the three tone sliders.
+  basic_hint: "Bass, Midrange and Treble adjust this output's sound on top of its preset, and the curve shows the result. Advanced has the filters, preamp and limiter.",
+  basic_over: "Too much boost for the audio chip. It keeps playing the previous sound until you turn a slider down.",
+  basic_no_stages: "This preset's filters fill the audio chip, so that slider can't move off 0 dB. Turn a filter off in Advanced to make room.",
+
+  // The output being edited, and the one playing.
+  output: "Output",
+  outputs: ["Built-in Speaker", "Line-out"],
+  playing: "PLAYING",
+  output_hint: "Each output has its own EQ. Your Satellite1 switches between them by itself when something is plugged into the line-out jack. Edit either one at any time.",
+  // Shown under the outputs only while Built-in Speaker is picked; the hint is HINTS.speaker_channel.
+  channel: "Channel",
+  channel_label: "Speaker channel",
+  eq_on: "Equalizer",
+  eq_hint: "Off plays everything flat on both outputs. Your settings stay saved.",
+  compare: "Hold to hear it flat",
+  comparing: "Playing flat",
+
+  // Presets.
+  preset: "PRESET",
+  custom: "Custom",
+  modified: "Modified",
+  save: "Save",
+  save_as: "Save as…",
+  revert: "Revert",
+  more: "More",
+  rename: "Rename…",
+  delete: "Delete preset",
+  import: "Import a filter file…",
+  export: "Export as a filter file",
+  reset: "Reset to default",
+  name: "Preset name",
+  name_placeholder: "Living room",
+  name_save: "Save",
+  name_cancel: "Cancel",
+  name_short: "Give it a name.",
+  name_long: "That name is too long.",
+  name_builtin: "That name belongs to a built-in preset.",
+  name_replace: "Replaces your preset “{name}”.",
+  name_full: "You have 8 presets already. Delete one to save another.",
+  saved: "Saved “{name}”.",
+  renamed: "Renamed to “{name}”.",
+  op_failed: "Your Satellite1 didn't take that. Try again.",
+  confirm_load: { t: "Discard your changes?", b: "Loading “{name}” replaces the changes you've made to this output's EQ." },
+  confirm_load_go: "Load it",
+  confirm_delete: { t: "Delete “{name}”?", b: "The preset is gone for good. Any output using it keeps its sound, now as Custom." },
+  confirm_delete_go: "Delete",
+  confirm_reset: { t: "Reset this output's EQ?", b: "{output} goes back to “{name}”. Your saved presets aren't touched." },
+  confirm_reset_go: "Reset",
+
+  // Import and export.
+  import_title: "Import a filter file",
+  import_body: "Paste an export from REW, Equalizer APO or Music Assistant, or choose the file. It replaces this output's filters, Bass, Midrange, Treble and preamp; the limiter stays as it is.",
+  import_choose: "Choose a file…",
+  import_go: "Import",
+  import_text: "Filter file text",
+  import_none: "That doesn't look like a filter file. It needs Preamp or Filter lines.",
+  imported: "Imported.",
+  notes: {
+    skip: "Line {line}: {type} filters aren't available here, so it was left out.",
+    unread: "Line {line}: its frequency couldn't be read, so it was left out.",
+    nogain: "Line {line}: its gain couldn't be read, so it came in at 0 dB.",
+    approx: "Line {line}: the {type} shelf has no Q, so it came in at Q 0.707.",
+    clamp: "Line {line}: a value was outside the speaker's range and was brought inside it.",
+    many: "Only the first {kept} filters fit.",
+    budget: "Only the first {kept} filters fit in the audio chip.",
+  },
+  export_title: "Export as a filter file",
+  export_body: "The REW / Equalizer APO format, which Music Assistant imports too. Bass, Midrange and Treble come along as filters at their own frequencies; the limiter doesn't.",
+  copy: "Copy",
+  copied: "Copied",
+  download: "Download",
+  close: "Close",
+
+  // The graph and what it says about level.
+  graph: "Frequency response",
+  graph_hint: "Drag a numbered dot to move a filter: sideways for its frequency, up and down for its boost or cut. Pick a dot, then scroll on it to make it wider or narrower. Double-click an empty spot to add a filter there. From the keyboard, Tab to a dot, then use the arrow keys, and Page Up or Page Down for the width.",
+  limiter_line: "LIMITER",
+  loudest: "Loudest point",
+  loudest_hint: "The most this EQ lifts any frequency, preamp included. Above the limiter's ceiling, loud music is held down by the limiter rather than clipping.",
+  limiter_on: "Limiter active",
+  limiter_working: "Limiting now",
+  limiter_hint: "With this much boost, loud passages reach the limiter. It keeps them clean, but they won't get any louder. Auto preamp lowers everything until the limiter has nothing to do.",
+  over_cap: "Too much boost. The audio chip keeps playing the previous EQ until the loudest point is under +18 dB. Lower the preamp or the boosts.",
+  refused: "The audio chip refused this EQ: too much boost. It's still playing the previous one.",
+  auto: "Auto preamp",
+  sync: ["Playing", "Sending…", "Refused", "Saved"],
+  // In sync, for the output that isn't playing or while the EQ is off.
+  ready: "Ready",
+
+  // Bass, Midrange, Treble and preamp.
+  tone: "Tone",
+  bass: "Bass",
+  mid: "Midrange",
+  treble: "Treble",
+  preamp: "Preamp",
+  preamp_hint: "Raises or lowers everything before the volume control. Lower it to make room for boosts; raise it to make a quiet speaker louder, with the limiter catching the peaks.",
+
+  // Filters.
+  filters: "Filters",
+  add: "Add filter",
+  none: "No filters yet. Add one here, or double-click the graph.",
+  full: "All {n} filters are in use.",
+  no_stages: "The audio chip has no room for that. Turn a filter off or remove one.",
+  kinds: { peak: "Peak", lowshelf: "Low shelf", highshelf: "High shelf", lowcut: "Low cut", highcut: "High cut" },
+  slopes: { bw12: "12 dB/oct · Butterworth", bw24: "24 dB/oct · Butterworth", lr12: "12 dB/oct · Linkwitz-Riley", lr24: "24 dB/oct · Linkwitz-Riley", q: "12 dB/oct · custom Q" },
+  say: {
+    boost: "Boost at {hz}",
+    cut: "Cut at {hz}",
+    flat: "Nothing at {hz}",
+    more_below: "More below {hz}",
+    less_below: "Less below {hz}",
+    more_above: "More above {hz}",
+    less_above: "Less above {hz}",
+    lowcut: "Remove below {hz}",
+    highcut: "Remove above {hz}",
+  },
+  on: "On",
+  type: "Type",
+  slope: "Slope",
+  freq: "Frequency",
+  gain: "Boost / cut",
+  q: "Width (Q)",
+  q_hint: "Higher Q is narrower. For a cut's custom Q, values above 0.7 add a small bump just above the cut-off.",
+  remove: "Remove",
+  // The handle's screen-reader name: {i} its number, {say} the plain label.
+  handle: "Filter {i}, {say}",
+
+  // The limiter.
+  limiter: "Limiter",
+  limiter_card_hint: "The safety net after the EQ: it holds peaks under the ceiling so boosts never clip. The defaults suit almost everything.",
+  ceiling: "Ceiling",
+  attack: "Attack",
+  release: "Release",
 };

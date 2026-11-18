@@ -15,6 +15,7 @@ from esphome.components import (
     event,
     logger,
     media_player,
+    microphone,
     number,
     select,
     sensor,
@@ -41,12 +42,26 @@ except ImportError:
     CrashReport = None
 
 # Optional again: without the TAS2780 in the build, GET /api/sat1/amp does not exist and the
-# Diagnostics route's Speaker amplifier card renders without its live readings. The class lives in
+# Developer page's TAS2780 card renders without its live readings. The class lives in
 # the platform module (audio_dac.py) because tas2780 is an audio_dac platform, not a component.
 try:
     from esphome.components.tas2780.audio_dac import tas2780 as TAS2780
 except ImportError:
     TAS2780 = None
+
+# Optional too: without the ring styles in the build, /api/sat1/ring does not exist and the LED
+# Ring page shows only the light's own color, brightness and effect.
+try:
+    from esphome.components.satellite1_ring import RingFx
+except ImportError:
+    RingFx = None
+
+# And the speaker EQ: without it /api/sat1/dsp does not exist, the state payload carries no "dsp"
+# field, and the Audio page has no DSP sub-page.
+try:
+    from esphome.components.satellite1_dsp import SpeakerDsp
+except ImportError:
+    SpeakerDsp = None
 from esphome.components.sendspin import (
     SendspinHub,
     request_controller_support,
@@ -83,6 +98,8 @@ CONF_ICON_180_ID = "icon_180_id"
 CONF_ENTITIES = "entities"
 CONF_LOGIN_MIC_AVAILABLE = "login_mic_available"
 CONF_MUTE_SWITCH = "mute_switch"
+CONF_MUTE_INTENT = "mute_intent"
+CONF_SET_MUTE_INTENT = "set_mute_intent"
 CONF_ON_LOGIN_WINDOW = "on_login_window"
 CONF_ON_LOGIN_WINDOW_END = "on_login_window_end"
 CONF_ON_PASSWORD_CHANGE = "on_password_change"
@@ -95,6 +112,8 @@ CONF_MEDIA_PLAYER_ID = "media_player_id"
 CONF_SENDSPIN_MEDIA_PLAYER_ID = "sendspin_media_player_id"
 CONF_SENDSPIN_HUB_ID = "sendspin_hub_id"
 CONF_SPEAKER_AMP_ID = "speaker_amp_id"
+CONF_RING_ID = "ring_id"
+CONF_DSP_ID = "dsp_id"
 CONF_ON_HA_REFRESH = "on_ha_refresh"
 CONF_ON_HA_SELECT = "on_ha_select"
 CONF_ON_ASK = "on_ask"
@@ -112,6 +131,12 @@ CONF_SOUNDS = "sounds"
 CONF_FSD_SELECTS = "fsd_selects"
 CONF_LOG_HISTORY = "log_history"
 CONF_ALERTS_SIZE = "alerts_size"
+CONF_MIC_MONITOR = "mic_monitor"
+CONF_MICROPHONE = "microphone"
+CONF_WAKE_WORD_GAIN = "wake_word_gain"
+CONF_XMOS_READY = "xmos_ready"
+CONF_MAX_LISTENERS = "max_listeners"
+CONF_SYSMON = "sysmon"
 
 # esphome/core/log.h values. The ring takes a line at or below its level, so CONFIG (4) - the
 # boot-time configuration dumps - rides along from DEBUG up and stays out at INFO.
@@ -150,6 +175,21 @@ def _log_history(value):
             return False
         value = {}
     return _LOG_HISTORY_SCHEMA(value)
+
+
+# Developer tooling (config/satellite1.dev.yaml only). The mic monitor streams both microphone
+# channels to Settings > Developer. `wake_word_gain` must match micro_wake_word's gain_factor so
+# the wake word channel is what the model hears; `xmos_ready` lets the stream say the audio is
+# missing because the XMOS is flashing or booting. Each listener is one of esp_http_server's seven
+# sockets for as long as it listens, hence the small cap.
+_MIC_MONITOR_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_MICROPHONE): cv.use_id(microphone.Microphone),
+        cv.Optional(CONF_WAKE_WORD_GAIN, default=1): cv.int_range(min=1, max=64),
+        cv.Optional(CONF_XMOS_READY): cv.returning_lambda,
+        cv.Optional(CONF_MAX_LISTENERS, default=2): cv.int_range(min=1, max=3),
+    }
+)
 
 satellite1_web_ui_ns = cg.esphome_ns.namespace("satellite1_web_ui")
 Satellite1WebUI = satellite1_web_ui_ns.class_("Satellite1WebUI", cg.Component)
@@ -207,6 +247,12 @@ def _request_sendspin_roles(config):
     return config
 
 
+def _require_mute_switch_for_intent(config):
+    if CONF_MUTE_INTENT in config and CONF_MUTE_SWITCH not in config:
+        raise cv.Invalid(f"{CONF_MUTE_INTENT} needs {CONF_MUTE_SWITCH}, the switch the held mute exists for")
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -230,6 +276,11 @@ CONFIG_SCHEMA = cv.All(
             # is restored on release or TTL expiry. Optional - without it the route answers 404
             # and the feature does not exist on this build.
             cv.Optional(CONF_MUTE_SWITCH): cv.use_id(switch.Switch),
+            # For a mute switch whose state also follows a hardware mute: the person's software
+            # choice alone, and a lambda (given `muted`) that sets it for the hold's duration.
+            # Without them the hold reads and drives the switch itself.
+            cv.Optional(CONF_MUTE_INTENT): cv.returning_lambda,
+            cv.Optional(CONF_SET_MUTE_INTENT): cv.lambda_,
             # The pairing window's lifecycle, for the announcement, the LED breathe and the model
             # arming. Open fires with (mode, secret); end fires with (result). Both optional so a
             # build without the YAML wiring still compiles - windows then open and close silently,
@@ -273,12 +324,27 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SENDSPIN_MEDIA_PLAYER_ID): cv.use_id(media_player.MediaPlayer),
             # The speaker amplifier, for GET /api/sat1/amp: an audio_dac is not an entity, so its
             # power mode and digital volume level ride neither /events nor the entity REST API,
-            # and the endpoint is the only way the app's Speaker amplifier card sees them.
+            # and the endpoint is the only way the app's TAS2780 card sees them.
             # Optional so a build without the TAS2780 still compiles; the route then answers 404
             # and the card's live readings never render.
             **(
                 {cv.Optional(CONF_SPEAKER_AMP_ID): cv.use_id(TAS2780)}
                 if TAS2780 is not None
+                else {}
+            ),
+            # The LED ring styles (satellite1_ring), behind GET/POST /api/sat1/ring and its reset
+            # and preview routes. Nine per-moment styles are too many fields for entities, so the
+            # LED Ring page reads and edits them here; the style alone is also a select.
+            **(
+                {cv.Optional(CONF_RING_ID): cv.use_id(RingFx)}
+                if RingFx is not None
+                else {}
+            ),
+            # The speaker EQ (satellite1_dsp), behind /api/sat1/dsp. Its profiles and presets have
+            # no entity; the Audio > Equalizer page reads and edits them here.
+            **(
+                {cv.Optional(CONF_DSP_ID): cv.use_id(SpeakerDsp)}
+                if SpeakerDsp is not None
                 else {}
             ),
             # The Sendspin hub itself, beyond the media_player entity above. The protocol carries
@@ -339,9 +405,16 @@ CONFIG_SCHEMA = cv.All(
             # The device's recent log, kept in PSRAM and served at GET /api/sat1/log, so the
             # Logs card opens on what happened before anyone was watching instead of on nothing.
             cv.Optional(CONF_LOG_HISTORY, default={}): _log_history,
+            # Developer tooling: absent from every release config, and with it the routes, the
+            # state keys and the Settings > Developer cards that read them.
+            cv.Optional(CONF_MIC_MONITOR): _MIC_MONITOR_SCHEMA,
+            # Twelve hours of heap samples and a FreeRTOS task table, at GET /api/sat1/sysmon.
+            cv.Optional(CONF_SYSMON): cv.Schema({}),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_with_framework(Framework.ESP_IDF),
+    cv.has_none_or_all_keys(CONF_MUTE_INTENT, CONF_SET_MUTE_INTENT),
+    _require_mute_switch_for_intent,
     _request_sendspin_roles,
 )
 
@@ -443,6 +516,12 @@ async def to_code(config):
 
     if CONF_MUTE_SWITCH in config:
         cg.add(var.set_mute_switch(await cg.get_variable(config[CONF_MUTE_SWITCH])))
+    if CONF_MUTE_INTENT in config:
+        get_intent = await cg.process_lambda(config[CONF_MUTE_INTENT], [], return_type=cg.bool_)
+        set_intent = await cg.process_lambda(
+            config[CONF_SET_MUTE_INTENT], [(cg.bool_, "muted")], return_type=cg.void
+        )
+        cg.add(var.set_mute_intent(get_intent, set_intent))
 
     if CONF_ON_LOGIN_WINDOW in config:
         await automation.build_automation(
@@ -539,6 +618,35 @@ async def to_code(config):
         # not exist, so the handler must not include it.
         cg.add_define("USE_SAT1_WEB_UI_AMP", True)
         cg.add(var.set_speaker_amp(await cg.get_variable(config[CONF_SPEAKER_AMP_ID])))
+
+    if CONF_RING_ID in config:
+        # A define for the same reason: the handler includes ring_fx.h only when the component is
+        # in the build.
+        cg.add_define("USE_SAT1_WEB_UI_RING", True)
+        cg.add(var.set_ring(await cg.get_variable(config[CONF_RING_ID])))
+
+    if CONF_DSP_ID in config:
+        cg.add_define("USE_SAT1_WEB_UI_DSP", True)
+        cg.add(var.set_dsp(await cg.get_variable(config[CONF_DSP_ID])))
+
+    if mic := config.get(CONF_MIC_MONITOR):
+        cg.add_define("USE_SAT1_MIC_MONITOR", True)
+        cg.add(
+            var.set_mic_monitor_microphone(await cg.get_variable(mic[CONF_MICROPHONE]))
+        )
+        cg.add(var.set_mic_monitor_wake_word_gain(mic[CONF_WAKE_WORD_GAIN]))
+        cg.add(var.set_mic_monitor_max_listeners(mic[CONF_MAX_LISTENERS]))
+        if CONF_XMOS_READY in mic:
+            ready = await cg.process_lambda(
+                mic[CONF_XMOS_READY], [], return_type=cg.bool_
+            )
+            cg.add(var.set_mic_monitor_xmos_ready(ready))
+
+    if CONF_SYSMON in config:
+        cg.add_define("USE_SAT1_SYSMON", True)
+        # uxTaskGetSystemState, for the task table. Without it the endpoint still serves the
+        # memory history and answers "tasks":null.
+        esp32.add_idf_sdkconfig_option("CONFIG_FREERTOS_USE_TRACE_FACILITY", True)
 
     if CONF_ON_SELECTION_CHANGE in config:
         await automation.build_automation(

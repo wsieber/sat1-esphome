@@ -136,6 +136,13 @@ class Satellite1WebUI : public Component {
   /// master_mute_switch on this product). From generated code; without it POST /api/sat1/mutehold
   /// answers 404 and the tune-time peer muting simply does not exist on this build.
   void set_mute_switch(switch_::Switch *sw) { this->mute_switch_ = sw; }
+  /// For a mute switch whose state also follows a hardware mute: the person's software choice
+  /// alone, and a way to set it for the hold's duration (mute_intent: and set_mute_intent: in
+  /// web_ui.yaml). Without them the hold reads and drives the switch itself.
+  void set_mute_intent(std::function<bool()> get, std::function<void(bool)> set) {
+    this->mute_intent_get_ = std::move(get);
+    this->mute_intent_set_ = std::move(set);
+  }
 #endif
 
   /// The action button's approval. Returns true when a pending window was approved, which is the
@@ -261,6 +268,28 @@ class Satellite1WebUI : public Component {
   void set_speaker_amp(tas2780::TAS2780 *amp) { this->handler_.set_speaker_amp(amp); }
 #endif
 
+#ifdef USE_SAT1_WEB_UI_RING
+  /// The ring styles behind /api/sat1/ring. Without them the routes do not exist and the LED Ring
+  /// page keeps to the light's own color, brightness and effect.
+  void set_ring(satellite1_ring::RingFx *ring) { this->handler_.set_ring(ring); }
+#endif
+
+#ifdef USE_SAT1_WEB_UI_DSP
+  /// The speaker EQ behind /api/sat1/dsp. Without it the routes do not exist and the Audio page
+  /// has no DSP sub-page.
+  void set_dsp(satellite1_dsp::SpeakerDsp *dsp) { this->handler_.set_dsp(dsp); }
+#endif
+
+#ifdef USE_SAT1_MIC_MONITOR
+  /// Developer builds: the mic monitor behind GET /api/sat1/mic. From generated code.
+  void set_mic_monitor_microphone(microphone::Microphone *mic) { this->handler_.mic_monitor().set_microphone(mic); }
+  void set_mic_monitor_wake_word_gain(uint8_t gain) { this->handler_.mic_monitor().set_wake_word_gain(gain); }
+  void set_mic_monitor_max_listeners(uint8_t n) { this->handler_.mic_monitor().set_max_listeners(n); }
+  void set_mic_monitor_xmos_ready(std::function<bool()> fn) {
+    this->handler_.mic_monitor().set_xmos_ready_fn(std::move(fn));
+  }
+#endif
+
 #ifdef USE_SAT1_WEB_UI_SENDSPIN
   /// The hub itself, beyond the media_player entity above, for what the entity model cannot say:
   /// track metadata with an artwork URL, controller state with shuffle/repeat and the server's
@@ -295,7 +324,7 @@ class Satellite1WebUI : public Component {
   void set_ha_failed() { this->handler_.set_ha_failed(); }
 
   /// The actions-checkbox verdict from tts_routing's probe (0 unknown, 1 allowed, 2 blocked,
-  /// 3 Home Assistant too old), pushed from tts_routing_status_publish and served as `actions`
+  /// 3 Home Assistant too old), pushed from remote_announcement_status_publish and served as `actions`
   /// on /api/sat1/ha. See WebUIHandler::set_ha_actions.
   void set_ha_actions(int verdict) { this->handler_.set_ha_actions(verdict); }
 
@@ -412,13 +441,17 @@ class Satellite1WebUI : public Component {
    * expiring, and never trusts the browser that asked to come back - the exact self-healing shape
    * the tune session itself uses. millis_64() for the deadline, like every deadline here. */
   switch_::Switch *mute_switch_{nullptr};
+  std::function<bool()> mute_intent_get_{};
+  std::function<void(bool)> mute_intent_set_{};
+  bool mute_intent_() const { return this->mute_intent_get_ ? this->mute_intent_get_() : this->mute_switch_->state; }
+  void set_mute_intent_(bool muted);
   bool mute_hold_{false};
   bool mute_hold_prior_on_{false};
-  /// Set once the switch has been OBSERVED on while held. The manual-unmute-wins rule (a person at
+  /// Set once the mute has been OBSERVED on while held. The manual-unmute-wins rule (a person at
   /// the device outranks a remote tune session; owner decision, September 23 2026) reads "held but
-  /// off" as that person's hand - but only after this flag, because turn_on() through the template
-  /// switch is refused while the hardware mute slider is engaged, and treating that unhonored
-  /// request as a manual unmute would cancel the hold it never applied.
+  /// off" as that person's hand - but only after this flag, because a switch driven directly may
+  /// refuse turn_on() (a template switch deferring to a hardware slider), and treating that
+  /// unhonored request as a manual unmute would cancel the hold it never applied.
   bool mute_hold_seen_on_{false};
   uint64_t mute_hold_until_{0};
 #endif
