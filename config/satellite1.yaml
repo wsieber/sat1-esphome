@@ -57,8 +57,10 @@ micro_wake_word:
     # Star Command, Wake Word Studio 2026-11-10 00:58 UTC run (75k/50k), local and unpublished
     # (config/.esphome is gitignored, so a fresh clone needs the file), at 0.98 and window 7 as on the
     # XVF3800s. Kept 2026-11-11 after a day on the XVF3800s; Frederick and Alfred were retired for it.
+    # From 2026-11-13, as on the XVF3800s: the 2026-11-11 21:14 UTC retrain as "Star Come And" (newer Studio,
+    # 75k/80k, sha256 2afea52c...), still named Star Command, at the Studio's 0.94 and window 5.
     - id: star_command
-      model: .esphome/test_models/star_command_20261110/star_command.json
+      model: .esphome/test_models/star_command_20261111/star_command.json
     # Computerv3, the 2026-10-26 retrain (custom negatives); computer.json is the older 10-24 run.
     # Back in place of Okay Batman now that the check drops its false fires.
     - id: computer
