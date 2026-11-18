@@ -427,48 +427,70 @@ script:
                         switch.is_on: wake_sound
                       then:
                         - lambda: id(web_ui_app)->queue_fsd_for(wake_word);
-                        # A greeting (clock synced) plays at the voice level; the
-                        # plain chime fallback stays at the media level. Ducking
-                        # applies at once and the DAC level does not move, so the
-                        # greeting's first samples are already right.
-                        - lambda: id(greeting_playing) = id(ha_time).now().is_valid();
-                        - script.execute: audio_gain_reconcile
-                        - script.execute:
-                            id: play_sound
-                            priority: true
-                            # Greeting by local time: midnight-noon morning,
-                            # noon-6pm afternoon, 6pm-midnight evening. The
-                            # secondary slot's wake word (Assistant 2, the
-                            # female-voice pipeline) gets the _f set. The
-                            # plain chime until ha_time has synced.
-                            sound_file: !lambda |-
-                              auto now = id(ha_time).now();
-                              if (!now.is_valid())
-                                return std::string("wake_word_triggered_sound");
-                              mww_runtime_loader::SlotView views[mww_runtime_loader::WL_SLOTS];
-                              uint32_t dl = 0, total = 0;
-                              int dl_slot = -1;
-                              id(mww_loader)->snapshot(views, dl, total, dl_slot);
-                              const bool female = !wake_word.empty() && views[1].word == wake_word;
-                              const char *part = now.hour < 12 ? "morning"
-                                               : now.hour < 18 ? "afternoon"
-                                                               : "evening";
-                              ESP_LOGD("greeting", "wake word '%s', primary '%s', secondary '%s' -> %s %s",
-                                       wake_word.c_str(), views[0].word.c_str(), views[1].word.c_str(),
-                                       part, female ? "female" : "male");
-                              return std::string("wake_good_") + part + (female ? "_f" : "") + "_sound";
-                        # A spoken greeting runs about a second, and a mic opened
-                        # under it transcribes it ("Good morning.") as the query.
-                        # Listen once it has finished, capped in case it never
-                        # starts.
-                        - delay: 300ms
-                        - wait_until:
+                        - if:
                             condition:
-                              not:
-                                media_player.is_announcing: external_media_player
-                            timeout: 4s
-                        - lambda: id(greeting_playing) = false;
-                        - script.execute: audio_gain_reconcile
+                              switch.is_on: communicator_greeting
+                            then:
+                              # The communicator page clip replaces the time-of-day
+                              # greeting while this switch is on. Flip it off to
+                              # restore good morning/afternoon/evening.
+                              - lambda: id(greeting_playing) = id(ha_time).now().is_valid();
+                              - script.execute: audio_gain_reconcile
+                              - script.execute:
+                                  id: play_sound
+                                  priority: true
+                                  sound_file: "communicator_page_sound"
+                              - delay: 300ms
+                              - wait_until:
+                                  condition:
+                                    not:
+                                      media_player.is_announcing: external_media_player
+                                  timeout: 4s
+                              - lambda: id(greeting_playing) = false;
+                              - script.execute: audio_gain_reconcile
+                            else:
+                              # A greeting (clock synced) plays at the voice level; the
+                              # plain chime fallback stays at the media level. Ducking
+                              # applies at once and the DAC level does not move, so the
+                              # greeting's first samples are already right.
+                              - lambda: id(greeting_playing) = id(ha_time).now().is_valid();
+                              - script.execute: audio_gain_reconcile
+                              - script.execute:
+                                  id: play_sound
+                                  priority: true
+                                  # Greeting by local time: midnight-noon morning,
+                                  # noon-6pm afternoon, 6pm-midnight evening. The
+                                  # secondary slot's wake word (Assistant 2, the
+                                  # female-voice pipeline) gets the _f set. The
+                                  # plain chime until ha_time has synced.
+                                  sound_file: !lambda |-
+                                    auto now = id(ha_time).now();
+                                    if (!now.is_valid())
+                                      return std::string("wake_word_triggered_sound");
+                                    mww_runtime_loader::SlotView views[mww_runtime_loader::WL_SLOTS];
+                                    uint32_t dl = 0, total = 0;
+                                    int dl_slot = -1;
+                                    id(mww_loader)->snapshot(views, dl, total, dl_slot);
+                                    const bool female = !wake_word.empty() && views[1].word == wake_word;
+                                    const char *part = now.hour < 12 ? "morning"
+                                             : now.hour < 18 ? "afternoon"
+                                                             : "evening";
+                                    ESP_LOGD("greeting", "wake word '%s', primary '%s', secondary '%s' -> %s %s",
+                                             wake_word.c_str(), views[0].word.c_str(), views[1].word.c_str(),
+                                             part, female ? "female" : "male");
+                                    return std::string("wake_good_") + part + (female ? "_f" : "") + "_sound";
+                              # A spoken greeting runs about a second, and a mic opened
+                              # under it transcribes it ("Good morning.") as the query.
+                              # Listen once it has finished, capped in case it never
+                              # starts.
+                              - delay: 300ms
+                              - wait_until:
+                                  condition:
+                                    not:
+                                      media_player.is_announcing: external_media_player
+                                  timeout: 4s
+                              - lambda: id(greeting_playing) = false;
+                              - script.execute: audio_gain_reconcile
                       else:
                         - if:
                             condition:

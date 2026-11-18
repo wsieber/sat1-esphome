@@ -472,6 +472,7 @@ satellite1_web_ui:
     switches:
       mute_mics: master_mute_switch
       wake_sound: wake_sound
+      communicator_greeting: communicator_greeting
       # Whether "stop" can interrupt a spoken answer, on the Voice Input card next to the wake
       # words it behaves like. The stop *model* stays off this map on purpose - see the
       # micro_wake_word_id note above - this switch gates its arming instead.

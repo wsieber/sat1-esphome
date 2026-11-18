@@ -39,6 +39,18 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
 
+  # When on, the wake greeting is the communicator page clip instead of the
+  # time-of-day good morning/afternoon/evening. Flip it off to restore the
+  # original greeting set. Declared here (not internal) so Home Assistant and
+  # the web app can both toggle it.
+  - platform: template
+    id: communicator_greeting
+    name: Communicator greeting
+    icon: "mdi:voicemail"
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
     # This is the master mute switch. It is exposed to Home Assistant. The user can only turn it on and off if the hardware switch is off. (The hardware switch overrides the software one)
   - platform: template
     id: master_mute_switch

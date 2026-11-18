@@ -73,6 +73,8 @@ audio_file:
     file: ${wake_good_afternoon_f_sound_file}
   - id: wake_good_evening_f_sound
     file: ${wake_good_evening_f_sound_file}
+  - id: communicator_page_sound
+    file: sounds/communicator_page.mp3
   - id: stop_clip_sound
     file: ${stop_clip_sound_file}
   - id: center_button_press_sound
